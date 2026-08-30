@@ -1,0 +1,159 @@
+export interface Company {
+  id: number;
+  name: string;
+  industry: string | null;
+  city: string | null;
+  website: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface Job {
+  id: number;
+  company_id: number;
+  title: string;
+  department: string | null;
+  location: string | null;
+  category: string | null;
+  jd_url: string | null;
+  jd_text: string | null;
+  salary_min: number | null;
+  salary_max: number | null;
+  created_at: string;
+}
+
+export interface Stage {
+  id: number;
+  name: string;
+  sort_order: number;
+}
+
+export interface Application {
+  id: number;
+  job_id: number;
+  channel: string | null;
+  resume_version: string | null;
+  stage_id: number;
+  status: string;
+  applied_at: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Interview {
+  id: number;
+  application_id: number;
+  round: number;
+  format: string | null;
+  location: string | null;
+  interviewer: string | null;
+  scheduled_at: string | null;
+  rating: number | null;
+  status: string;
+  feedback: string | null;
+  created_at: string;
+}
+
+export interface Attachment {
+  id: number;
+  interview_id: number;
+  kind: string;
+  filename: string;
+  filepath: string;
+  size: number;
+  duration: number | null;
+  created_at: string;
+}
+
+export interface AudioMark {
+  id: number;
+  interview_id: number;
+  attachment_id: number;
+  position: number;
+  label: string;
+  note: string | null;
+  created_at: string;
+}
+
+export interface ExtractSettings {
+  fetchMode: string; // "http" | "browser"
+  cookie: string;
+  browserPath: string;
+  provider: string; // "none" | "ollama" | "openai"
+  ollamaUrl: string;
+  ollamaModel: string;
+  openaiUrl: string;
+  openaiKey: string;
+  openaiModel: string;
+  proxy: string;
+  mirror: string;
+}
+
+export interface ExtractedJob {
+  title: string | null;
+  company: string | null;
+  salaryMin: number | null;
+  salaryMax: number | null;
+  location: string | null;
+  department: string | null;
+  category: string | null;
+  summary: string | null;
+}
+
+export interface JobDetail {
+  title: string;
+  company: string;
+  jdText: string | null;
+  department: string | null;
+  location: string | null;
+  category: string | null;
+  salaryMin: number | null;
+  salaryMax: number | null;
+}
+
+export const APPLICATION_STATUS = ["推进中", "已获Offer", "未通过筛选", "无回应超时"];
+export const INTERVIEW_STATUS = ["待面试", "已完成", "已取消"];
+export const INTERVIEW_FORMAT = ["线上视频", "电话", "线下"];
+
+export interface Resume {
+  id: number;
+  name: string;
+  filename: string;
+  filepath: string;
+  size: number;
+  tags: string | null;
+  created_at: string;
+}
+
+export interface UpcomingInterview {
+  id: number;
+  round: number;
+  scheduled_at: string;
+  status: string;
+  format: string | null;
+  job_title: string;
+  company_name: string;
+}
+
+export interface ActivityLog {
+  id: number;
+  application_id: number;
+  kind: string;
+  detail: string;
+  created_at: string;
+}
+export interface ReviewNote {
+  id: number;
+  round: number;
+  scheduled_at: string | null;
+  format: string | null;
+  rating: number | null;
+  status: string;
+  feedback: string;
+  job_title: string;
+  company_name: string;
+  category: string | null;
+}
+
+export const CATEGORIES = ["技术类", "产品类", "设计类", "运营类", "市场类", "职能类", "销售类", "数据类", "其他"];
