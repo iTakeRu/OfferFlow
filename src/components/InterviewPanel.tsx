@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { open, confirm } from "@tauri-apps/plugin-dialog";
-import { openPath } from "@tauri-apps/plugin-opener";
 import {
   listInterviews, createInterview, updateInterview, deleteInterview,
-  listAttachments, importAttachment, deleteAttachment,
+  listAttachments, importAttachment, deleteAttachment, listAudioMarks, openManagedPath,
 } from "../api";
-import type { Application, Interview, Attachment } from "../types";
+import type { Application, Interview, Attachment, AudioMark } from "../types";
 import { INTERVIEW_FORMAT, INTERVIEW_STATUS } from "../types";
+import { formatSize, formatTime } from "../format";
 import { useI18n } from "../i18n";
+import { useModalFocus } from "../useModalFocus";
 import RichTextEditor from "./RichTextEditor";
 import AudioPlayer from "./AudioPlayer";
 
@@ -60,17 +61,13 @@ function detectKind(name: string): string {
   return "file";
 }
 
-function formatSize(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / 1024 / 1024).toFixed(1)} MB`;
-}
-
 export default function InterviewPanel({ app, jobTitle, companyName, onClose }: Props) {
   const { t } = useI18n();
+  const modal = useModalFocus(onClose);
   const [interviews, setInterviews] = useState<Interview[]>([]);
   const [drafts, setDrafts] = useState<Record<number, Draft>>({});
   const [attachments, setAttachments] = useState<Record<number, Attachment[]>>({});
+  const [marks, setMarks] = useState<Record<number, AudioMark[]>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [savingId, setSavingId] = useState<number | null>(null);
@@ -85,11 +82,15 @@ export default function InterviewPanel({ app, jobTitle, companyName, onClose }: 
       }
       return d;
     });
-    const atm: Record<number, Attachment[]> = {};
-    for (const it of list) {
-      atm[it.id] = await listAttachments(it.id);
-    }
-    setAttachments(atm);
+    const loaded = await Promise.all(
+      list.map(async (it) => ({
+        id: it.id,
+        attachments: await listAttachments(it.id),
+        marks: await listAudioMarks(it.id),
+      })),
+    );
+    setAttachments(Object.fromEntries(loaded.map((x) => [x.id, x.attachments])));
+    setMarks(Object.fromEntries(loaded.map((x) => [x.id, x.marks])));
   }, [app.id]);
 
   useEffect(() => {
@@ -101,8 +102,12 @@ export default function InterviewPanel({ app, jobTitle, companyName, onClose }: 
   const addRound = async () => {
     setError("");
     const next = interviews.reduce((m, i) => Math.max(m, i.round), 0) + 1;
-    await createInterview({ applicationId: app.id, round: next });
-    await load();
+    try {
+      await createInterview({ applicationId: app.id, round: next });
+      await load();
+    } catch (e) {
+      setError(String(e));
+    }
   };
 
   const updateDraft = (id: number, patch: Partial<Draft>) => {
@@ -152,7 +157,7 @@ export default function InterviewPanel({ app, jobTitle, companyName, onClose }: 
   const importFile = async (interviewId: number) => {
     setError("");
     try {
-      const selected = await open({ multiple: false });
+      const selected = await open({ multiple: false, filters: [{ name: t("面试附件"), extensions: ["mp3", "wav", "m4a", "aac", "ogg", "flac", "mp4", "webm", "pdf", "doc", "docx", "txt", "png", "jpg", "jpeg", "webp"] }] });
       if (typeof selected !== "string") return;
       const kind = detectKind(selected);
       await importAttachment({ interviewId, kind, sourcePath: selected });
@@ -167,8 +172,21 @@ export default function InterviewPanel({ app, jobTitle, companyName, onClose }: 
     setError("");
     try {
       await deleteAttachment(attId);
-      const list = await listAttachments(interviewId);
+      const [list, markList] = await Promise.all([
+        listAttachments(interviewId),
+        listAudioMarks(interviewId),
+      ]);
       setAttachments((prev) => ({ ...prev, [interviewId]: list }));
+      setMarks((prev) => ({ ...prev, [interviewId]: markList }));
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const openAttachment = async (path: string) => {
+    setError("");
+    try {
+      await openManagedPath(path);
     } catch (e) {
       setError(String(e));
     }
@@ -176,7 +194,7 @@ export default function InterviewPanel({ app, jobTitle, companyName, onClose }: 
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-30 p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
+      <div ref={modal.ref} onKeyDown={modal.onKeyDown} role="dialog" aria-modal="true" aria-label={t("面试复盘")} tabIndex={-1} className="bg-white rounded-xl shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
         <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-200">
           <div>
             <h2 className="text-lg font-semibold">{t("面试复盘")}</h2>
@@ -320,9 +338,12 @@ export default function InterviewPanel({ app, jobTitle, companyName, onClose }: 
                                 {t(KIND_LABEL[a.kind] ?? a.kind)}
                               </span>
                               <span className="flex-1 truncate">{a.filename}</span>
-                              <span className="text-xs text-neutral-400 whitespace-nowrap">{formatSize(a.size)}</span>
+                              <span className="text-xs text-neutral-400 whitespace-nowrap">
+                                {formatSize(a.size)}
+                                {a.duration != null ? ` · ${formatTime(a.duration)}` : ""}
+                              </span>
                               <button
-                                onClick={() => openPath(a.filepath)}
+                                onClick={() => openAttachment(a.filepath)}
                                 className="text-xs text-neutral-700 hover:underline whitespace-nowrap"
                               >
                                 {t("打开")}
@@ -340,7 +361,21 @@ export default function InterviewPanel({ app, jobTitle, companyName, onClose }: 
                       {atts.filter((a) => a.kind === "audio").length > 0 && (
                         <div className="mt-3 space-y-3">
                           {atts.filter((a) => a.kind === "audio").map((a) => (
-                            <AudioPlayer key={a.id} attachment={a} interviewId={it.id} />
+                            <AudioPlayer
+                              key={a.id}
+                              attachment={a}
+                              interviewId={it.id}
+                              marks={(marks[it.id] ?? []).filter((m) => m.attachment_id === a.id)}
+                              onMarksChanged={(next) =>
+                                setMarks((prev) => ({
+                                  ...prev,
+                                  [it.id]: [
+                                    ...(prev[it.id] ?? []).filter((m) => m.attachment_id !== a.id),
+                                    ...next,
+                                  ],
+                                }))
+                              }
+                            />
                           ))}
                         </div>
                       )}

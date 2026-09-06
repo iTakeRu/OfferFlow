@@ -19,9 +19,10 @@ export default function ActivityTimeline({ applicationId }: Props) {
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
   const reload = () => {
-    listActivities(applicationId).then(setLogs).catch(() => {});
+    listActivities(applicationId).then(setLogs).catch((e) => setError(String(e)));
   };
 
   useEffect(() => {
@@ -33,11 +34,12 @@ export default function ActivityTimeline({ applicationId }: Props) {
     const d = draft.trim();
     if (!d) return;
     setBusy(true);
+    setError("");
     try {
       await addActivityNote(applicationId, d);
       setDraft("");
       reload();
-    } finally {
+    } catch (e) { setError(String(e)); } finally {
       setBusy(false);
     }
   };
@@ -45,6 +47,7 @@ export default function ActivityTimeline({ applicationId }: Props) {
   return (
     <div className="mt-5">
       <div className="text-xs font-medium text-neutral-500 mb-2">{t("投递时间线")}</div>
+      {error && <div className="text-xs text-red-600 mb-2">{error}</div>}
       <div className="flex gap-2 mb-3">
         <input
           className="flex-1 rounded-md border border-neutral-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-400 bg-white"

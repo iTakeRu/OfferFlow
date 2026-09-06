@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
-import { getSettings, saveSettings, listOllamaModels } from "../api";
-import type { ExtractSettings } from "../types";
+import { getSettings, saveSettings, listOllamaModels, checkOllama, exportBackup, importBackup } from "../api";
+import { open, message, confirm as askConfirm } from "@tauri-apps/plugin-dialog";
+import type { ExtractSettings, OllamaStatus } from "../types";
 import { useI18n } from "../i18n";
+import { useModalFocus } from "../useModalFocus";
 
 interface Props {
   onClose: () => void;
@@ -14,6 +16,7 @@ const section = "text-sm font-semibold text-neutral-700 mb-2";
 const DEFAULT_SETTINGS: ExtractSettings = {
   fetchMode: "http",
   cookie: "",
+  cookieDomain: "mokahr.com",
   browserPath: "",
   provider: "none",
   ollamaUrl: "http://localhost:11434",
@@ -22,19 +25,29 @@ const DEFAULT_SETTINGS: ExtractSettings = {
   openaiKey: "",
   openaiModel: "gpt-4o-mini",
   proxy: "",
-  mirror: "",
 };
 
 export default function SettingsPanel({ onClose }: Props) {
   const { t } = useI18n();
+  const modal = useModalFocus(onClose);
   const [s, setS] = useState<ExtractSettings>(DEFAULT_SETTINGS);
   const [msg, setMsg] = useState("");
   const [saving, setSaving] = useState(false);
   const [loadingModels, setLoadingModels] = useState(false);
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [backingUp, setBackingUp] = useState(false);
+  const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus | null>(null);
 
   useEffect(() => {
     getSettings().then(setS).catch((e) => setMsg(String(e)));
   }, []);
+
+  useEffect(() => {
+    if (s.provider === "ollama") {
+      setOllamaStatus(null);
+      checkOllama().then(setOllamaStatus).catch(() => setOllamaStatus(null));
+    }
+  }, [s.provider]);
 
   const set = <K extends keyof ExtractSettings>(key: K, value: ExtractSettings[K]) =>
     setS((prev) => ({ ...prev, [key]: value }));
@@ -53,16 +66,25 @@ export default function SettingsPanel({ onClose }: Props) {
     }
   };
 
+  const handleCheckOllama = async () => {
+    setOllamaStatus(null);
+    try {
+      setOllamaStatus(await checkOllama());
+    } catch {
+      setOllamaStatus(null);
+    }
+  };
+
   const handleListModels = async () => {
     setLoadingModels(true);
     setMsg("");
     try {
       const models = await listOllamaModels();
       if (models.length === 0) {
-        setMsg(t("Ollama 未返回模型，请检查服务是否启动"));
+        setMsg(t("Ollama 未返回模型，请检查服务是否启动，或手动输入模型名"));
       } else {
-        set("ollamaModel", models[0]);
-        setMsg(t("已获取 {n} 个模型，已选择首个", { n: models.length }));
+        setAvailableModels(models);
+        setMsg(t("已获取 {n} 个模型，可从下拉选择或手动输入", { n: models.length }));
       }
     } catch (e) {
       setMsg(String(e));
@@ -71,12 +93,34 @@ export default function SettingsPanel({ onClose }: Props) {
     }
   };
 
+  const handleExportBackup = async () => {
+    const target = await open({ directory: true, multiple: false, title: t("选择备份保存位置") });
+    if (typeof target !== "string") return;
+    setBackingUp(true); setMsg("");
+    try {
+      const path = await exportBackup(target);
+      await message(t("备份已创建：") + path, { title: t("备份完成"), kind: "info" });
+    } catch (e) { setMsg(String(e)); }
+    finally { setBackingUp(false); }
+  };
+
+  const handleImportBackup = async () => {
+    const source = await open({ directory: true, multiple: false, title: t("选择 OfferFlow 备份目录") });
+    if (typeof source !== "string") return;
+    const ok = await askConfirm(t("恢复会在重启后替换当前业务数据，当前数据会保留为 .bak，确认继续？"), { title: t("恢复确认"), kind: "warning" });
+    if (!ok) return;
+    setBackingUp(true); setMsg("");
+    try { setMsg(await importBackup(source)); }
+    catch (e) { setMsg(String(e)); }
+    finally { setBackingUp(false); }
+  };
+
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-30 p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-xl max-h-[88vh] flex flex-col">
+      <div ref={modal.ref} onKeyDown={modal.onKeyDown} role="dialog" aria-modal="true" aria-labelledby="settings-modal-title" tabIndex={-1} className="bg-white rounded-xl shadow-xl w-full max-w-xl max-h-[88vh] flex flex-col">
         <div className="flex items-center justify-between px-6 pt-5 pb-3 border-b border-neutral-200">
-          <h2 className="text-base font-semibold">{t("设置 · 抓取与信息提取")}</h2>
-          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600 text-xl leading-none">&times;</button>
+          <h2 id="settings-modal-title" className="text-base font-semibold">{t("设置 · 抓取与信息提取")}</h2>
+          <button onClick={onClose} aria-label={t("关闭")} className="text-neutral-400 hover:text-neutral-600 text-xl leading-none">&times;</button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
@@ -104,6 +148,8 @@ export default function SettingsPanel({ onClose }: Props) {
               <div>
                 <div className={label}>{t("Cookie（登录态注入，可选）")}</div>
                 <textarea className={field} rows={2} value={s.cookie} onChange={(e) => set("cookie", e.target.value)} placeholder="key1=value1; key2=value2" />
+                <div className={`${label} mt-2`}>{t("Cookie 仅发送到此域名及其子域名")}</div>
+                <input className={field} value={s.cookieDomain} onChange={(e) => set("cookieDomain", e.target.value)} placeholder="mokahr.com" />
               </div>
 
               <div>
@@ -128,6 +174,24 @@ export default function SettingsPanel({ onClose }: Props) {
 
               {s.provider === "ollama" && (
                 <>
+                  <div className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-neutral-600">{t("Ollama 服务状态")}</span>
+                      <button type="button" onClick={handleCheckOllama} className="text-xs text-neutral-500 hover:text-neutral-700 underline">{t("重新检测")}</button>
+                    </div>
+                    {ollamaStatus == null ? (
+                      <div className="text-xs text-neutral-400">{t("检测中…")}</div>
+                    ) : ollamaStatus.running ? (
+                      <div className="text-xs text-green-700">{t("服务运行中，可直接获取模型")}</div>
+                    ) : ollamaStatus.installed ? (
+                      <div className="text-xs text-amber-700">{t("已安装但未启动，请运行 ollama serve")}</div>
+                    ) : (
+                      <div className="text-xs text-red-700">
+                        {t("未检测到 Ollama，请先安装：")}
+                        <a href="https://ollama.com/download" target="_blank" rel="noreferrer" className="underline">ollama.com/download</a>
+                      </div>
+                    )}
+                  </div>
                   <div>
                     <div className={label}>{t("Ollama 地址")}</div>
                     <input className={field} value={s.ollamaUrl} onChange={(e) => set("ollamaUrl", e.target.value)} />
@@ -135,15 +199,17 @@ export default function SettingsPanel({ onClose }: Props) {
                   <div>
                     <div className={label}>{t("模型")}</div>
                     <div className="flex gap-2">
-                      <input className={field} value={s.ollamaModel} onChange={(e) => set("ollamaModel", e.target.value)} />
+                      <input className={field} list="ollama-model-list" value={s.ollamaModel} onChange={(e) => set("ollamaModel", e.target.value)} />
                       <button onClick={handleListModels} disabled={loadingModels} className="px-3 py-1.5 text-sm rounded-md border border-neutral-300 hover:bg-neutral-50 disabled:opacity-50 whitespace-nowrap">
                         {loadingModels ? t("获取中…") : t("获取模型")}
                       </button>
                     </div>
-                  </div>
-                  <div>
-                    <div className={label}>{t("模型下载镜像源（可选，供模型下载加速）")}</div>
-                    <input className={field} value={s.mirror} onChange={(e) => set("mirror", e.target.value)} placeholder="https://ollama.com/library" />
+                    <datalist id="ollama-model-list">
+                      {availableModels.map((m) => (
+                        <option key={m} value={m} />
+                      ))}
+                    </datalist>
+                    <p className="mt-1 text-xs text-neutral-400">{t("可手动输入模型名（适用于手动下载的模型）")}</p>
                   </div>
                 </>
               )}
@@ -164,6 +230,15 @@ export default function SettingsPanel({ onClose }: Props) {
                   </div>
                 </>
               )}
+            </div>
+          </div>
+
+          <div>
+            <div className={section}>{t("备份与恢复")}</div>
+            <p className="text-xs text-neutral-500 mb-2">{t("备份包含业务数据、简历和附件，不包含 Cookie 与 API Key。")}</p>
+            <div className="flex gap-2">
+              <button onClick={handleExportBackup} disabled={backingUp} className="px-3 py-1.5 text-sm rounded-md border border-neutral-300 hover:bg-neutral-50 disabled:opacity-50">{t("导出完整备份")}</button>
+              <button onClick={handleImportBackup} disabled={backingUp} className="px-3 py-1.5 text-sm rounded-md border border-neutral-300 text-red-700 hover:bg-red-50 disabled:opacity-50">{t("从备份恢复")}</button>
             </div>
           </div>
         </div>

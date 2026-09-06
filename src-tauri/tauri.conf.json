@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "offerflow",
+  "productName": "OfferFlow",
   "version": "0.1.0",
-  "identifier": "com.offerflow.app",
+  "identifier": "com.offerflow.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -12,13 +12,22 @@
   "app": {
     "windows": [
       {
-        "title": "offerflow",
-        "width": 800,
-        "height": 600
+        "title": "OfferFlow",
+        "width": 1100,
+        "height": 720,
+        "minWidth": 760,
+        "minHeight": 520
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost asset: http://asset.localhost; img-src 'self' asset: http://asset.localhost data: blob:; media-src 'self' asset: http://asset.localhost data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'",
+      "assetProtocol": {
+        "enable": true,
+        "scope": {
+          "allow": ["$DATA/offerflow/**", "$EXE/data/**"],
+          "requireLiteralLeadingDot": false
+        }
+      }
     }
   },
   "bundle": {

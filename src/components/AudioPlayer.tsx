@@ -1,118 +1,80 @@
 import { useEffect, useRef, useState } from "react";
 import WaveSurfer from "wavesurfer.js";
-import {
-  readFileBase64, listAudioMarks, addAudioMark, deleteAudioMark,
-} from "../api";
+import { convertFileSrc } from "@tauri-apps/api/core";
+import { addAudioMark, deleteAudioMark, setAttachmentDuration } from "../api";
 import type { Attachment, AudioMark } from "../types";
+import { formatTime } from "../format";
 import { useI18n } from "../i18n";
 
 interface Props {
   attachment: Attachment;
+  marks: AudioMark[];
+  onMarksChanged: (next: AudioMark[]) => void;
   interviewId: number;
 }
 
-function mimeOf(name: string): string {
-  const ext = name.split(".").pop()?.toLowerCase() ?? "";
-  const map: Record<string, string> = {
-    mp3: "audio/mpeg",
-    wav: "audio/wav",
-    m4a: "audio/mp4",
-    ogg: "audio/ogg",
-    flac: "audio/flac",
-    aac: "audio/aac",
-    webm: "audio/webm",
-  };
-  return map[ext] ?? "audio/mpeg";
-}
-
-function formatTime(s: number): string {
-  if (!isFinite(s) || s < 0) return "0:00";
-  const m = Math.floor(s / 60);
-  const sec = Math.floor(s % 60);
-  return `${m}:${sec.toString().padStart(2, "0")}`;
-}
-
-export default function AudioPlayer({ attachment, interviewId }: Props) {
+export default function AudioPlayer({ attachment, marks, onMarksChanged, interviewId }: Props) {
   const { t } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WaveSurfer | null>(null);
   const [ready, setReady] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [current, setCurrent] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [marks, setMarks] = useState<AudioMark[]>([]);
+  const [duration, setDuration] = useState(attachment.duration ?? 0);
   const [label, setLabel] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
+  const attachmentId = attachment.id;
+  const knownDuration = attachment.duration;
+
   useEffect(() => {
-    let ws: WaveSurfer | null = null;
-    let objectUrl: string | null = null;
+    const container = containerRef.current;
+    if (!container) return;
     let disposed = false;
 
-    (async () => {
-      try {
-        const b64 = await readFileBase64(attachment.filepath);
-        const binary = atob(b64);
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-        const blob = new Blob([bytes], { type: mimeOf(attachment.filename) });
-        objectUrl = URL.createObjectURL(blob);
+    // 走 asset: 协议让 WebView 直接流式读取本地文件。
+    // 之前是整段音频 base64 过 IPC 再 atob 逐字节还原，几十 MB 的录音会把界面卡死。
+    const ws = WaveSurfer.create({
+      container,
+      url: convertFileSrc(attachment.filepath),
+      waveColor: "#d4d4d4",
+      progressColor: "#404040",
+      cursorColor: "#f59e0b",
+      height: 72,
+      normalize: true,
+    });
+    wsRef.current = ws;
 
-        ws = WaveSurfer.create({
-          container: containerRef.current!,
-          url: objectUrl,
-          waveColor: "#d4d4d4",
-          progressColor: "#404040",
-          cursorColor: "#f59e0b",
-          height: 72,
-          normalize: true,
-        });
-
-        ws.on("ready", () => {
-          if (disposed) return;
-          setDuration(ws!.getDuration());
-          setReady(true);
-          setPlaying(false);
-        });
-        ws.on("timeupdate", (t) => {
-          if (!disposed) setCurrent(t);
-        });
-        ws.on("play", () => setPlaying(true));
-        ws.on("pause", () => setPlaying(false));
-        ws.on("finish", () => setPlaying(false));
-        ws.on("error", () => {
-          if (!disposed) setError(t("音频加载失败"));
-        });
-
-        wsRef.current = ws;
-      } catch (e) {
-        if (!disposed) setError(String(e));
+    ws.on("ready", () => {
+      if (disposed) return;
+      const total = ws.getDuration();
+      setDuration(total);
+      setReady(true);
+      setPlaying(false);
+      // 附件表里的 duration 一直是空的，解码出来后回填一次。
+      if (knownDuration == null && total > 0) {
+        setAttachmentDuration(attachmentId, total).catch(() => {});
       }
-    })();
+    });
+    ws.on("timeupdate", (time) => {
+      if (!disposed) setCurrent(time);
+    });
+    ws.on("play", () => setPlaying(true));
+    ws.on("pause", () => setPlaying(false));
+    ws.on("finish", () => setPlaying(false));
+    ws.on("error", () => {
+      if (!disposed) setError("audio-load-failed");
+    });
 
     return () => {
       disposed = true;
-      if (wsRef.current) {
-        wsRef.current.destroy();
-        wsRef.current = null;
-      }
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      wsRef.current = null;
+      ws.destroy();
     };
-  }, [attachment.filepath, t]);
-
-  useEffect(() => {
-    listAudioMarks(interviewId)
-      .then((all) =>
-        setMarks(
-          all
-            .filter((m) => m.attachment_id === attachment.id)
-            .sort((a, b) => a.position - b.position),
-        ),
-      )
-      .catch((e) => setError(String(e)));
-  }, [interviewId, attachment.id]);
+    // 依赖里不能放 t：否则切换语言会把所有音频重新加载一遍。
+  }, [attachment.filepath, attachmentId, knownDuration]);
 
   const togglePlay = () => {
     const ws = wsRef.current;
@@ -129,8 +91,7 @@ export default function AudioPlayer({ attachment, interviewId }: Props) {
   };
 
   const handleAddMark = async () => {
-    const ws = wsRef.current;
-    if (!ws) return;
+    if (!wsRef.current) return;
     if (!label.trim()) {
       setError(t("请填写打点标签"));
       return;
@@ -140,12 +101,12 @@ export default function AudioPlayer({ attachment, interviewId }: Props) {
     try {
       const created = await addAudioMark({
         interviewId,
-        attachmentId: attachment.id,
+        attachmentId,
         position: Math.round(current * 100) / 100,
         label: label.trim(),
         note: note.trim() || null,
       });
-      setMarks((prev) => [...prev, created].sort((a, b) => a.position - b.position));
+      onMarksChanged([...marks, created].sort((a, b) => a.position - b.position));
       setLabel("");
       setNote("");
     } catch (e) {
@@ -159,7 +120,7 @@ export default function AudioPlayer({ attachment, interviewId }: Props) {
     setError("");
     try {
       await deleteAudioMark(id);
-      setMarks((prev) => prev.filter((m) => m.id !== id));
+      onMarksChanged(marks.filter((m) => m.id !== id));
     } catch (e) {
       setError(String(e));
     }
@@ -233,7 +194,11 @@ export default function AudioPlayer({ attachment, interviewId }: Props) {
         </ul>
       )}
 
-      {error && <div className="mt-2 text-xs text-red-600">{error}</div>}
+      {error && (
+        <div className="mt-2 text-xs text-red-600">
+          {error === "audio-load-failed" ? t("音频加载失败") : error}
+        </div>
+      )}
     </div>
   );
 }

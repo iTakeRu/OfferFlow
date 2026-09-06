@@ -1,4 +1,6 @@
-import { DndContext, useDraggable, useDroppable } from "@dnd-kit/core";
+import {
+  DndContext, KeyboardSensor, PointerSensor, useDraggable, useDroppable, useSensor, useSensors,
+} from "@dnd-kit/core";
 import type { DragEndEvent } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import type { ReactNode } from "react";
@@ -24,8 +26,17 @@ function ApplicationCard({ app, job, company, onOpen }: {
       style={style}
       {...listeners}
       {...attributes}
+      role="button"
+      tabIndex={0}
+      aria-label={`${company?.name ?? t("未知公司")} · ${job?.title ?? t("未知岗位")}`}
       onClick={() => onOpen(app)}
-      className={"w-64 shrink-0 bg-white rounded-lg border border-neutral-200 p-3 cursor-grab shadow-sm hover:shadow " + (isDragging ? "opacity-60" : "")}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          onOpen(app);
+        }
+      }}
+      className={"w-64 shrink-0 bg-white rounded-lg border border-neutral-200 p-3 cursor-grab shadow-sm hover:shadow focus:outline-none focus:ring-2 focus:ring-neutral-400 " + (isDragging ? "opacity-60" : "")}
     >
       <div className="font-medium truncate text-sm">{job?.title ?? t("未知岗位")}</div>
       <div className="text-xs text-neutral-500 mt-0.5 truncate">{company?.name ?? t("未知公司")}</div>
@@ -68,15 +79,25 @@ interface Props {
 
 export default function KanbanBoard({ stages, applications, jobMap, companyMap, onMove, onOpen }: Props) {
   const { t } = useI18n();
+  // 必须给一个激活距离：默认的 PointerSensor 在 pointerdown 就进入拖拽态，
+  // 并在 document 捕获阶段吞掉 click，导致卡片根本点不开。
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor),
+  );
+
   const handleDragEnd = (e: DragEndEvent) => {
     const { active, over } = e;
-    if (over) {
-      onMove(Number(active.id), Number(over.id));
-    }
+    if (!over) return;
+    const appId = Number(active.id);
+    const stageId = Number(over.id);
+    // 拖回原阶段没必要打一次库、也没必要写一条时间线。
+    if (applications.find((a) => a.id === appId)?.stage_id === stageId) return;
+    onMove(appId, stageId);
   };
 
   return (
-    <DndContext onDragEnd={handleDragEnd}>
+    <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
       <div className="flex flex-col gap-4">
         {stages.map((stage) => {
           const apps = applications.filter((a) => a.stage_id === stage.id);

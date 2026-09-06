@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { listResumes, importResume, deleteResume, updateResume } from "../api";
-import { open } from "@tauri-apps/plugin-dialog";
-import { openPath } from "@tauri-apps/plugin-opener";
+import { listResumes, importResume, deleteResume, updateResume, openManagedPath } from "../api";
+import { open, confirm as askConfirm } from "@tauri-apps/plugin-dialog";
 import type { Resume } from "../types";
+import { formatSize } from "../format";
 import { useI18n } from "../i18n";
 
 interface Props {
@@ -19,7 +19,7 @@ export default function ResumeView({ onChanged }: Props) {
   const [editTags, setEditTags] = useState("");
 
   const refresh = () => {
-    listResumes().then(setResumes).catch(() => setResumes([]));
+    return listResumes().then(setResumes).catch((e) => setError(String(e)));
   };
 
   useEffect(() => {
@@ -29,7 +29,7 @@ export default function ResumeView({ onChanged }: Props) {
 
   const handleImport = async () => {
     try {
-      const source = await open({ title: t("选择简历文件"), multiple: false });
+      const source = await open({ title: t("选择简历文件"), multiple: false, filters: [{ name: t("简历文档"), extensions: ["pdf", "doc", "docx", "txt", "rtf"] }] });
       if (!source || Array.isArray(source)) return;
       setImporting(true);
       setError("");
@@ -44,9 +44,14 @@ export default function ResumeView({ onChanged }: Props) {
   };
 
   const handleDelete = async (id: number) => {
-    await deleteResume(id);
-    await refresh();
-    onChanged();
+    const ok = await askConfirm(t("删除后简历文件将从磁盘移除，确认继续？"), { title: t("删除确认"), kind: "warning" });
+    if (!ok) return;
+    try {
+      setError("");
+      await deleteResume(id);
+      await refresh();
+      onChanged();
+    } catch (e) { setError(String(e)); }
   };
 
   const startEdit = (r: Resume) => {
@@ -77,7 +82,7 @@ export default function ResumeView({ onChanged }: Props) {
   const handlePreview = async (r: Resume) => {
     try {
       setError("");
-      await openPath(r.filepath);
+      await openManagedPath(r.filepath);
     } catch (e) {
       setError(String(e));
     }
@@ -113,7 +118,7 @@ export default function ResumeView({ onChanged }: Props) {
                 ) : (
                   <div>
                     <div className="text-sm font-medium">{r.name || t("未命名")}</div>
-                    <div className="text-xs text-neutral-400 mt-0.5">{r.filename} · {r.size} {t("字节")}</div>
+                    <div className="text-xs text-neutral-400 mt-0.5">{r.filename} · {formatSize(r.size)}</div>
                   </div>
                 )}
                 <div className="flex items-center gap-2 shrink-0 ml-3">

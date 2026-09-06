@@ -8,11 +8,12 @@
 - 阶段自由自定义：阶段可增删改，并支持上移 / 下移排序，适配不同公司的招聘流程
 - 链接一键解析：粘贴职位链接自动抓取职位、公司、薪资、JD 内容（已适配 MokaHR 等）
 - AI 信息提取（可选）：配置 Ollama 或 OpenAI，自动从 JD 提取结构化信息与岗位分类
+- 公司与岗位管理：公司、岗位均可增删改，误解析的记录可直接修正而不必删掉整条投递
 - 多元搜索与筛选：按公司 / 岗位 / 部门 / 城市 / 分类 / 渠道搜索；岗位支持分类属性（技术类 / 职能类 / 市场类等）
 - 投递时间线：自动记录每个投递的创建、阶段流转、状态变更
 - 简历版本管理：导入简历、系统默认程序预览、重命名、打标签
 - 面试台账：记录面试安排与过程，支持录音与音频标注
-- 数据看板与复盘题库：投递漏斗统计 + 面试题沉淀
+- 数据看板与复盘题库：投递漏斗统计 + 近 14 天面试安排 + 面试题沉淀
 - 备份与导出：一键导出 Excel 投递记录，支持完整备份 / 恢复
 
 ## 技术栈
@@ -20,7 +21,7 @@
 - 前端：React 19 + TypeScript + Vite + Tailwind CSS + TipTap + dnd-kit
 - 后端：Rust + Tauri 2
 - 存储：SQLite（rusqlite，本地单文件）
-- 其他：rust_xlsxwriter（Excel 导出）、ureq（HTTP 抓取）、Ollama / OpenAI（AI 提取，可选）
+- 其他：rust_xlsxwriter（Excel 导出）、ureq + encoding_rs（HTTP 抓取，兼容 GBK 页面）、Ollama / OpenAI（AI 提取，可选）
 
 ## 目录结构
 
@@ -42,7 +43,7 @@
 
 ## 环境要求
 
-- Node.js 18+ 与 npm
+- Node.js 20+ 与 npm
 - Rust 工具链（rustup + stable）
 - Tauri 2 系统依赖（Windows 需安装 VS Build Tools，详见 Tauri 官方文档）
 - 平台自带 WebView2 运行时（Windows 10/11 已内置）
@@ -71,12 +72,21 @@
 
 ## 数据存储
 
-业务数据默认放在本地目录 D:/OfferFlow/data（代码设定；若该目录不可写，则回退到 %APPDATA%\offerflow）：
+业务数据目录按以下顺序选择：
+
+1. `OFFERFLOW_DATA_DIR` 环境变量指定的可写目录
+2. 可执行文件旁**已存在**的 `data/`（绿色版：把 `data/` 和 exe 放一起带走即可）
+3. 系统应用数据目录 `%APPDATA%\offerflow`
+
+第 2 条要求目录已经存在，否则数据目录会跟着 exe 的位置走，同一台机器上从不同位置启动会各自生成一份数据。
+
+首次启动时，若检测到 0.1 版遗留的 `D:/OfferFlow/data` 且新目录尚无数据库，会自动把数据迁移过去（原目录保留不动）。
 
     offerflow.db     # SQLite 数据库：投递 / 公司 / 岗位 / 简历 / 面试 / 设置
     resumes/         # 简历文件
     attachments/     # 面试附件
-    settings.json    # AI 提取配置（Ollama / OpenAI）
+    settings.json            # 非敏感抓取与 AI 配置
+    settings.secrets.json    # Windows DPAPI 加密的 Cookie / API Key
 
 请勿将 data/ 目录提交到公开仓库（含个人求职隐私）。
 
@@ -86,6 +96,27 @@
 2. 自定义流程：在「公司与岗位」中新增 / 重命名 / 排序阶段
 3. 简历：在「简历版本」导入简历，支持预览、重命名、打标签
 4. AI 提取（可选）：在「系统设置」配置 Ollama 地址或 OpenAI Key
+
+## 数据安全与备份
+
+- Cookie 只会发送到设置中指定的域名及其子域名；岗位抓取拒绝本机、私网及非 HTTP(S) 地址，且重定向的每一跳都会重新校验
+- 简历与附件只能通过后端命令打开，路径必须落在当前数据目录内
+- Windows 下 Cookie 和 API Key 使用 DPAPI 加密保存，不会写入普通设置文件或备份
+- 完整备份可在「系统设置」中导出；每次导出创建独立目录，包含数据库、简历与附件
+- 恢复前会执行 SQLite 完整性、外键和架构版本检查；当前数据库及文件目录保留为 `.bak`
+- 删除公司、岗位、投递或面试时，会同步清理其托管附件文件
+- 恢复失败时待恢复文件会自动归档为 `.failed-*`，不会让应用卡在打不开的状态
+
+## 质量检查
+
+提交代码前运行：
+
+    npm run check
+    cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+    cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+    cargo test --manifest-path src-tauri/Cargo.toml
+
+GitHub Actions 会在 push 和 pull request 时执行同样的检查。
 
 ## License
 

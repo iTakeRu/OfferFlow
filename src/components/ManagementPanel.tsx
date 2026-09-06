@@ -1,12 +1,14 @@
 import { useState } from "react";
 import {
-  createCompany, deleteCompany, createJob, deleteJob,
+  createCompany, updateCompany, deleteCompany, createJob, updateJob, deleteJob,
   createStage, updateStage, deleteStage, reorderStages,
   fetchJdText, extractJdInfo,
 } from "../api";
 import { CATEGORIES } from "../types";
 import type { Stage, Company, Job } from "../types";
 import { useI18n } from "../i18n";
+import { confirm as askConfirm } from "@tauri-apps/plugin-dialog";
+import { useModalFocus } from "../useModalFocus";
 
 interface Props {
   stages: Stage[];
@@ -25,6 +27,7 @@ type Tab = "stage" | "company" | "job";
 
 export default function ManagementPanel({ stages, companies, jobs, onClose, onChanged }: Props) {
   const { t } = useI18n();
+  const modal = useModalFocus(onClose);
   const [tab, setTab] = useState<Tab>("stage");
   const [error, setError] = useState("");
 
@@ -37,6 +40,12 @@ export default function ManagementPanel({ stages, companies, jobs, onClose, onCh
   const [cName, setCName] = useState("");
   const [cIndustry, setCIndustry] = useState("");
   const [cCity, setCCity] = useState("");
+  const [editingCompanyId, setEditingCompanyId] = useState<number | null>(null);
+  const [companyDraft, setCompanyDraft] = useState({ name: "", industry: "", city: "" });
+
+  // 编辑岗位：解析出来的公司 / 岗位以前只能删（还会连带删掉投递），改不了
+  const [editingJobId, setEditingJobId] = useState<number | null>(null);
+  const [jobDraft, setJobDraft] = useState({ title: "", department: "", location: "", category: "" });
 
   // job state
   const [jobCompanyId, setJobCompanyId] = useState<number | "">("");
@@ -62,6 +71,11 @@ export default function ManagementPanel({ stages, companies, jobs, onClose, onCh
     }
   };
 
+  const confirmDelete = async (message: string, fn: () => Promise<unknown>) => {
+    const ok = await askConfirm(message, { title: t("删除确认"), kind: "warning" });
+    if (ok) await run(fn);
+  };
+
   const moveStage = (idx: number, dir: -1 | 1) => {
     const target = idx + dir;
     if (target < 0 || target >= stages.length) return;
@@ -85,6 +99,53 @@ export default function ManagementPanel({ stages, companies, jobs, onClose, onCh
     run(async () => {
       await createCompany({ name: cName.trim(), industry: cIndustry || null, city: cCity || null });
       setCName(""); setCIndustry(""); setCCity("");
+    });
+  };
+
+  const startEditCompany = (c: Company) => {
+    setEditingCompanyId(c.id);
+    setCompanyDraft({ name: c.name, industry: c.industry ?? "", city: c.city ?? "" });
+  };
+
+  const saveCompany = (c: Company) => {
+    if (!companyDraft.name.trim()) return;
+    run(async () => {
+      await updateCompany(c.id, {
+        name: companyDraft.name.trim(),
+        industry: companyDraft.industry || null,
+        city: companyDraft.city || null,
+        website: c.website,
+        notes: c.notes,
+      });
+      setEditingCompanyId(null);
+    });
+  };
+
+  const startEditJob = (j: Job) => {
+    setEditingJobId(j.id);
+    setJobDraft({
+      title: j.title,
+      department: j.department ?? "",
+      location: j.location ?? "",
+      category: j.category ?? "",
+    });
+  };
+
+  const saveJob = (j: Job) => {
+    if (!jobDraft.title.trim()) return;
+    run(async () => {
+      await updateJob(j.id, {
+        companyId: j.company_id,
+        title: jobDraft.title.trim(),
+        department: jobDraft.department || null,
+        location: jobDraft.location || null,
+        category: jobDraft.category || null,
+        jdUrl: j.jd_url,
+        jdText: j.jd_text,
+        salaryMin: j.salary_min,
+        salaryMax: j.salary_max,
+      });
+      setEditingJobId(null);
     });
   };
 
@@ -149,7 +210,7 @@ export default function ManagementPanel({ stages, companies, jobs, onClose, onCh
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-20 p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+      <div ref={modal.ref} onKeyDown={modal.onKeyDown} role="dialog" aria-modal="true" aria-label={t("公司、岗位与阶段管理")} tabIndex={-1} className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[85vh] flex flex-col">
         <div className="flex items-center justify-between px-6 pt-5 pb-3 border-b border-neutral-200">
           <div className="flex gap-2">
             {tabs.map((tb) => (
@@ -164,7 +225,7 @@ export default function ManagementPanel({ stages, companies, jobs, onClose, onCh
               </button>
             ))}
           </div>
-          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600 text-xl leading-none">&times;</button>
+          <button onClick={onClose} aria-label={t("关闭")} className="text-neutral-400 hover:text-neutral-600 text-xl leading-none">&times;</button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-4">
@@ -196,7 +257,7 @@ export default function ManagementPanel({ stages, companies, jobs, onClose, onCh
                       >
                         {t("重命名")}
                       </button>
-                      <button className={danger} onClick={() => run(() => deleteStage(s.id))}>{t("删除")}</button>
+                      <button className={danger} onClick={() => confirmDelete(t("删除该阶段？仍被投递使用的阶段无法删除。"), () => deleteStage(s.id))}>{t("删除")}</button>
                     </div>
                   </li>
                 ))}
@@ -216,13 +277,32 @@ export default function ManagementPanel({ stages, companies, jobs, onClose, onCh
               </div>
               <ul className="divide-y divide-neutral-100">
                 {companies.map((c) => (
-                  <li key={c.id} className="flex items-center justify-between py-2">
-                    <div>
-                      <span className="text-sm font-medium">{c.name}</span>
-                      {c.city && <span className="text-xs text-neutral-400 ml-2">{c.city}</span>}
-                      {c.industry && <span className="text-xs text-neutral-400 ml-2">{c.industry}</span>}
-                    </div>
-                    <button className={danger} onClick={() => run(() => deleteCompany(c.id))}>{t("删除")}</button>
+                  <li key={c.id} className="flex items-center justify-between gap-2 py-2">
+                    {editingCompanyId === c.id ? (
+                      <>
+                        <div className="flex-1 grid grid-cols-3 gap-2">
+                          <input className={field} value={companyDraft.name} onChange={(e) => setCompanyDraft((d) => ({ ...d, name: e.target.value }))} placeholder={t("公司名称 *")} />
+                          <input className={field} value={companyDraft.industry} onChange={(e) => setCompanyDraft((d) => ({ ...d, industry: e.target.value }))} placeholder={t("行业（可选）")} />
+                          <input className={field} value={companyDraft.city} onChange={(e) => setCompanyDraft((d) => ({ ...d, city: e.target.value }))} placeholder={t("城市（可选）")} />
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button className={`${btn} bg-neutral-900 text-white`} onClick={() => saveCompany(c)}>{t("保存")}</button>
+                          <button className={`${btn} border border-neutral-300`} onClick={() => setEditingCompanyId(null)}>{t("取消")}</button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div>
+                          <span className="text-sm font-medium">{c.name}</span>
+                          {c.city && <span className="text-xs text-neutral-400 ml-2">{c.city}</span>}
+                          {c.industry && <span className="text-xs text-neutral-400 ml-2">{c.industry}</span>}
+                        </div>
+                        <div className="flex items-center gap-3 shrink-0">
+                          <button className="text-neutral-400 hover:text-neutral-600 text-sm" onClick={() => startEditCompany(c)}>{t("编辑")}</button>
+                          <button className={danger} onClick={() => confirmDelete(t("删除公司会同时删除其岗位、投递、面试和附件，确认继续？"), () => deleteCompany(c.id))}>{t("删除")}</button>
+                        </div>
+                      </>
+                    )}
                   </li>
                 ))}
                 {companies.length === 0 && <li className="text-sm text-neutral-400 py-3">{t("暂无公司")}</li>}
@@ -298,18 +378,42 @@ export default function ManagementPanel({ stages, companies, jobs, onClose, onCh
                 <div className="text-xs font-medium text-neutral-500 mb-1">{t("岗位列表")}</div>
                 <ul className="divide-y divide-neutral-100">
                   {jobs.filter((j) => jobCompanyId !== "" && j.company_id === Number(jobCompanyId)).map((j) => (
-                    <li key={j.id} className="flex items-center justify-between py-2">
-                      <div>
-                        <span className="text-sm">{j.title}</span>
-                        {j.department && <span className="text-xs text-neutral-400 ml-2">{j.department}</span>}
-                        {j.category && <span className="text-xs text-neutral-400 ml-2">{t(j.category)}</span>}
-                        {j.salary_min != null && (
-                          <span className="text-xs text-neutral-400 ml-2">
-                            {j.salary_min}{j.salary_max != null ? `-${j.salary_max}` : ""}k
-                          </span>
-                        )}
-                      </div>
-                      <button className={danger} onClick={() => run(() => deleteJob(j.id))}>{t("删除")}</button>
+                    <li key={j.id} className="flex items-center justify-between gap-2 py-2">
+                      {editingJobId === j.id ? (
+                        <>
+                          <div className="flex-1 grid grid-cols-2 gap-2">
+                            <input className={field} value={jobDraft.title} onChange={(e) => setJobDraft((d) => ({ ...d, title: e.target.value }))} placeholder={t("岗位名称 *")} />
+                            <input className={field} value={jobDraft.department} onChange={(e) => setJobDraft((d) => ({ ...d, department: e.target.value }))} placeholder={t("部门（可选）")} />
+                            <input className={field} value={jobDraft.location} onChange={(e) => setJobDraft((d) => ({ ...d, location: e.target.value }))} placeholder={t("城市（可选）")} />
+                            <select className={field} value={jobDraft.category} onChange={(e) => setJobDraft((d) => ({ ...d, category: e.target.value }))}>
+                              <option value="">{t("选择分类")}</option>
+                              {CATEGORIES.map((ct) => <option key={ct} value={ct}>{t(ct)}</option>)}
+                            </select>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button className={`${btn} bg-neutral-900 text-white`} onClick={() => saveJob(j)}>{t("保存")}</button>
+                            <button className={`${btn} border border-neutral-300`} onClick={() => setEditingJobId(null)}>{t("取消")}</button>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div>
+                            <span className="text-sm">{j.title}</span>
+                            {j.department && <span className="text-xs text-neutral-400 ml-2">{j.department}</span>}
+                            {j.location && <span className="text-xs text-neutral-400 ml-2">{j.location}</span>}
+                            {j.category && <span className="text-xs text-neutral-400 ml-2">{t(j.category)}</span>}
+                            {j.salary_min != null && (
+                              <span className="text-xs text-neutral-400 ml-2">
+                                {j.salary_min}{j.salary_max != null ? `-${j.salary_max}` : ""}k
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-3 shrink-0">
+                            <button className="text-neutral-400 hover:text-neutral-600 text-sm" onClick={() => startEditJob(j)}>{t("编辑")}</button>
+                            <button className={danger} onClick={() => confirmDelete(t("删除岗位会同时删除相关投递、面试和附件，确认继续？"), () => deleteJob(j.id))}>{t("删除")}</button>
+                          </div>
+                        </>
+                      )}
                     </li>
                   ))}
                   {jobCompanyId === "" && <li className="text-sm text-neutral-400 py-3">{t("请先选择公司")}</li>}

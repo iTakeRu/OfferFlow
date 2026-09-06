@@ -1,17 +1,19 @@
 import { useEffect, useState } from "react";
 import { listReviewNotes } from "../api";
 import type { ReviewNote } from "../types";
+import { htmlToPlainText } from "../format";
 import { useI18n } from "../i18n";
 
 export default function ReviewBankView() {
   const { t } = useI18n();
   const [notes, setNotes] = useState<ReviewNote[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     listReviewNotes()
       .then(setNotes)
-      .catch(() => setNotes([]))
+      .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
   }, []);
 
@@ -21,6 +23,7 @@ export default function ReviewBankView() {
 
   return (
     <div className="space-y-4">
+      {error && <div className="text-sm text-red-600">{error}</div>}
       <div className="text-sm font-semibold text-neutral-700">{t("已沉淀 {n} 条复盘记录", { n: notes.length })}</div>
       <div className="grid grid-cols-2 gap-4">
         {notes.map((n) => (
@@ -34,7 +37,7 @@ export default function ReviewBankView() {
               {n.category ? " · " + t(n.category) : ""}
               {n.scheduled_at ? " · " + n.scheduled_at : ""}
             </div>
-            <div className="mt-3 text-sm text-neutral-700 whitespace-pre-wrap">{n.feedback}</div>
+            <div className="mt-3 text-sm text-neutral-700 whitespace-pre-wrap">{htmlToPlainText(n.feedback)}</div>
           </div>
         ))}
       </div>

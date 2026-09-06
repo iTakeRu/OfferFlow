@@ -1,21 +1,21 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import {
   listStages, listCompanies, listJobs, listApplications, moveApplication, exportExcel,
 } from "./api";
-import { save } from "@tauri-apps/plugin-dialog";
-import { openPath } from "@tauri-apps/plugin-opener";
+import { save, message } from "@tauri-apps/plugin-dialog";
 import type { Stage, Company, Job, Application } from "./types";
 import { CATEGORIES } from "./types";
 import { useI18n } from "./i18n";
 import KanbanBoard from "./components/KanbanBoard";
 import ListView from "./components/ListView";
-import DashboardView from "./components/DashboardView";
-import ReviewBankView from "./components/ReviewBankView";
-import ResumeView from "./components/ResumeView";
 import ApplicationModal from "./components/ApplicationModal";
-import ManagementPanel from "./components/ManagementPanel";
-import InterviewPanel from "./components/InterviewPanel";
-import SettingsPanel from "./components/SettingsPanel";
+
+const DashboardView = lazy(() => import("./components/DashboardView"));
+const ReviewBankView = lazy(() => import("./components/ReviewBankView"));
+const ResumeView = lazy(() => import("./components/ResumeView"));
+const ManagementPanel = lazy(() => import("./components/ManagementPanel"));
+const InterviewPanel = lazy(() => import("./components/InterviewPanel"));
+const SettingsPanel = lazy(() => import("./components/SettingsPanel"));
 
 type AppModalState = { mode: "create" } | { mode: "edit"; app: Application } | null;
 type NavKey = "board" | "list" | "dashboard" | "review" | "resume";
@@ -31,6 +31,7 @@ export default function App() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [nav, setNav] = useState<NavKey>("board");
   const [query, setQuery] = useState("");
   const [catFilter, setCatFilter] = useState("");
@@ -51,9 +52,9 @@ export default function App() {
       const path = p.toLowerCase().endsWith(".xlsx") ? p : p + ".xlsx";
       setExporting(true);
       await exportExcel(path);
-      await openPath(path);
+      await message(t("导出完成：") + path, { title: t("导出 Excel"), kind: "info" });
     } catch (e) {
-      alert(t("导出失败：") + String(e));
+      await message(t("导出失败：") + String(e), { title: t("导出 Excel"), kind: "error" });
     } finally {
       setExporting(false);
     }
@@ -70,7 +71,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    refresh().finally(() => setLoading(false));
+    refresh().catch((e) => setLoadError(String(e))).finally(() => setLoading(false));
   }, [refresh]);
 
   const jobMap = useMemo(
@@ -115,6 +116,13 @@ export default function App() {
         {t("加载中…")}
       </div>
     );
+  }
+  if (loadError) {
+    return <div className="min-h-screen flex flex-col gap-4 items-center justify-center p-8 text-center">
+      <div className="text-red-700 font-medium">{t("数据加载失败")}</div>
+      <div className="text-sm text-neutral-600 max-w-xl break-words">{loadError}</div>
+      <button className="px-4 py-2 rounded-md bg-neutral-900 text-white" onClick={() => { setLoading(true); setLoadError(""); refresh().catch((e) => setLoadError(String(e))).finally(() => setLoading(false)); }}>{t("重试")}</button>
+    </div>;
   }
 
   const activeJob = interviewApp ? jobMap.get(interviewApp.job_id) : undefined;
@@ -219,16 +227,13 @@ export default function App() {
               onOpen={(app) => setAppModal({ mode: "edit", app })}
             />
           )}
+          <Suspense fallback={<div className="text-neutral-400">{t("加载中…")}</div>}>
           {nav === "dashboard" && (
-            <DashboardView
-              applications={applications}
-              jobMap={jobMap}
-              companyMap={companyMap}
-              stageMap={stageMap}
-            />
+            <DashboardView applications={applications} jobMap={jobMap} stageMap={stageMap} />
           )}
           {nav === "review" && <ReviewBankView />}
           {nav === "resume" && <ResumeView onChanged={refresh} />}
+          </Suspense>
         </main>
       </div>
 
@@ -250,6 +255,7 @@ export default function App() {
         />
       )}
 
+      <Suspense fallback={null}>
       {interviewApp && (
         <InterviewPanel
           app={interviewApp}
@@ -270,6 +276,7 @@ export default function App() {
       )}
 
       {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
+      </Suspense>
     </div>
   );
 }

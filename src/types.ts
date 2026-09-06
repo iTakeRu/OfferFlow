@@ -79,6 +79,7 @@ export interface AudioMark {
 export interface ExtractSettings {
   fetchMode: string; // "http" | "browser"
   cookie: string;
+  cookieDomain: string;
   browserPath: string;
   provider: string; // "none" | "ollama" | "openai"
   ollamaUrl: string;
@@ -87,7 +88,12 @@ export interface ExtractSettings {
   openaiKey: string;
   openaiModel: string;
   proxy: string;
-  mirror: string;
+}
+
+export interface OllamaStatus {
+  installed: boolean;
+  running: boolean;
+  url: string;
 }
 
 export interface ExtractedJob {

@@ -1,17 +1,26 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { listUpcomingInterviews } from "../api";
 import { APPLICATION_STATUS } from "../types";
-import type { Application, Job, Company } from "../types";
+import type { Application, Job, UpcomingInterview } from "../types";
 import { useI18n } from "../i18n";
+
+const UPCOMING_DAYS = 14;
 
 interface Props {
   applications: Application[];
   jobMap: Map<number, Job>;
-  companyMap: Map<number, Company>;
   stageMap: Map<number, string>;
 }
 
-export default function DashboardView({ applications, jobMap, companyMap, stageMap }: Props) {
+export default function DashboardView({ applications, jobMap, stageMap }: Props) {
   const { t } = useI18n();
+  const [upcoming, setUpcoming] = useState<UpcomingInterview[]>([]);
+
+  useEffect(() => {
+    // 后端一直有这个查询，只是之前没有任何界面用到它。
+    listUpcomingInterviews(UPCOMING_DAYS).then(setUpcoming).catch(() => setUpcoming([]));
+  }, []);
+
   const stats = useMemo(() => {
     const total = applications.length;
     const stageCount = new Map<string, number>();
@@ -30,7 +39,7 @@ export default function DashboardView({ applications, jobMap, companyMap, stageM
       if (a.status === "已获Offer") offer += 1;
     }
     return { total, offer, stageCount, catCount, statusCount, companyCount: companySet.size };
-  }, [applications, jobMap, companyMap, stageMap]);
+  }, [applications, jobMap, stageMap]);
 
   const { total, offer, stageCount, catCount, statusCount, companyCount } = stats;
 
@@ -52,6 +61,28 @@ export default function DashboardView({ applications, jobMap, companyMap, stageM
             <div className="text-2xl font-semibold mt-1">{k.value}</div>
           </div>
         ))}
+      </div>
+
+      <div className="bg-white rounded-xl border border-neutral-200 p-4">
+        <div className="text-sm font-semibold mb-3">{t("近 {n} 天面试安排", { n: UPCOMING_DAYS })}</div>
+        {upcoming.length === 0 ? (
+          <div className="text-sm text-neutral-400 py-2">{t("暂无待办面试")}</div>
+        ) : (
+          <ul className="divide-y divide-neutral-100">
+            {upcoming.map((i) => (
+              <li key={i.id} className="flex items-center gap-3 py-2 text-sm">
+                <span className="text-neutral-500 tabular-nums whitespace-nowrap">{i.scheduled_at.slice(0, 10)}</span>
+                <span className="font-medium truncate">{i.company_name}</span>
+                <span className="text-neutral-500 truncate">{i.job_title}</span>
+                <span className="flex-1" />
+                <span className="text-xs text-neutral-400 whitespace-nowrap">
+                  {t("第 {n} 轮", { n: i.round })}
+                  {i.format ? ` · ${t(i.format)}` : ""} · {t(i.status)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-4">

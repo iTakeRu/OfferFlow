@@ -1,20 +1,36 @@
 mod commands;
 mod db;
-mod models;
 mod extract;
+mod models;
 
 use db::Db;
-use std::sync::Mutex;
+use std::path::Path;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let db_path = db::default_db_dir().join("offerflow.db");
-    let conn = db::init(&db_path).expect("failed to initialize database");
-    let db_state = Db(Mutex::new(conn));
+    let db_path = db::prepare_data_dir().join("offerflow.db");
+    let context = tauri::generate_context!();
+    match db::init(&db_path) {
+        Ok(conn) => start(Db::new(conn), context),
+        // 这里以前是 expect()：任何初始化失败都会变成无窗口、无提示的闪退，
+        // 用户完全不知道发生了什么。改成弹一个能看懂的原生提示再退出。
+        Err(err) => fail(&err, &db_path),
+    }
+}
 
+fn start(db_state: Db, context: tauri::Context) {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .setup(|app| {
+            // 音频走 asset: 协议直接流式播放（不再把整个文件 base64 过 IPC）。
+            // 静态 scope 覆盖不到 OFFERFLOW_DATA_DIR 指定的目录，这里按运行时
+            // 真实的数据目录再放行一次。
+            use tauri::Manager;
+            app.asset_protocol_scope()
+                .allow_directory(db::default_db_dir(), true)?;
+            Ok(())
+        })
         .manage(db_state)
         .invoke_handler(tauri::generate_handler![
             commands::list_stages,
@@ -40,13 +56,12 @@ pub fn run() {
             commands::update_interview,
             commands::delete_interview,
             commands::list_attachments,
-            commands::add_attachment,
             commands::delete_attachment,
+            commands::set_attachment_duration,
             commands::list_audio_marks,
             commands::add_audio_mark,
-            commands::update_audio_mark,
             commands::delete_audio_mark,
-            commands::read_file_base64,
+            commands::open_managed_path,
             commands::import_attachment,
             commands::export_excel,
             commands::list_resumes,
@@ -58,15 +73,57 @@ pub fn run() {
             commands::import_backup,
             commands::list_activities,
             commands::add_activity_note,
+            commands::list_review_notes,
             extract::get_settings,
             extract::set_settings,
             extract::fetch_jd_text,
             extract::extract_jd_info,
             extract::list_ollama_models,
-            extract::fetch_mokahr_job_detail,
+            extract::check_ollama,
             extract::fetch_job_detail,
-            commands::list_review_notes
+            extract::supported_job_hosts,
         ])
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("error while running tauri application");
+}
+
+fn fail(err: &str, db_path: &Path) {
+    let message = format!(
+        "OfferFlow 无法启动。\n\n{err}\n\n数据文件：{}",
+        db_path.display()
+    );
+    show_startup_error(&message);
+    std::process::exit(1);
+}
+
+#[cfg(windows)]
+fn show_startup_error(message: &str) {
+    #[link(name = "User32")]
+    extern "system" {
+        fn MessageBoxW(
+            hwnd: *mut std::ffi::c_void,
+            text: *const u16,
+            caption: *const u16,
+            kind: u32,
+        ) -> i32;
+    }
+    fn wide(value: &str) -> Vec<u16> {
+        value.encode_utf16().chain(std::iter::once(0)).collect()
+    }
+    const MB_ICONERROR: u32 = 0x10;
+    let text = wide(message);
+    let caption = wide("OfferFlow");
+    unsafe {
+        MessageBoxW(
+            std::ptr::null_mut(),
+            text.as_ptr(),
+            caption.as_ptr(),
+            MB_ICONERROR,
+        );
+    }
+}
+
+#[cfg(not(windows))]
+fn show_startup_error(message: &str) {
+    eprintln!("{message}");
 }

@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   Company, Job, Stage, Application, Interview, Attachment, AudioMark,
-  ExtractSettings, ExtractedJob, JobDetail, Resume, UpcomingInterview, ActivityLog, ReviewNote,
+  ExtractSettings, ExtractedJob, JobDetail, OllamaStatus, Resume, UpcomingInterview, ActivityLog, ReviewNote,
 } from "./types";
 
 // ---------- Stage ----------
@@ -79,22 +79,21 @@ export const deleteInterview = (id: number) => invoke<void>("delete_interview", 
 
 // ---------- Attachment ----------
 export const listAttachments = (interviewId: number) => invoke<Attachment[]>("list_attachments", { interviewId });
-export const addAttachment = (p: {
-  interviewId: number; kind: string; filename: string; filepath: string; size: number; duration?: number | null;
-}) => invoke<Attachment>("add_attachment", p);
 export const deleteAttachment = (id: number) => invoke<void>("delete_attachment", { id });
-export const readFileBase64 = (path: string) => invoke<string>("read_file_base64", { path });
+export const setAttachmentDuration = (id: number, duration: number) =>
+  invoke<void>("set_attachment_duration", { id, duration });
 export const importAttachment = (p: {
   interviewId: number; kind: string; sourcePath: string;
 }) => invoke<Attachment>("import_attachment", p);
+
+/** 用系统默认程序打开数据目录内的简历 / 附件（后端会校验路径归属）。 */
+export const openManagedPath = (path: string) => invoke<void>("open_managed_path", { path });
 
 // ---------- AudioMark ----------
 export const listAudioMarks = (interviewId: number) => invoke<AudioMark[]>("list_audio_marks", { interviewId });
 export const addAudioMark = (p: {
   interviewId: number; attachmentId: number; position: number; label: string; note?: string | null;
 }) => invoke<AudioMark>("add_audio_mark", p);
-export const updateAudioMark = (id: number, p: { position: number; label: string; note?: string | null }) =>
-  invoke<AudioMark>("update_audio_mark", { id, ...p });
 export const deleteAudioMark = (id: number) => invoke<void>("delete_audio_mark", { id });
 
 // ---------- Export ----------
@@ -106,9 +105,11 @@ export const saveSettings = (settings: ExtractSettings) => invoke<void>("set_set
 export const fetchJdText = (url: string) => invoke<string>("fetch_jd_text", { url });
 export const extractJdInfo = (content: string) => invoke<ExtractedJob>("extract_jd_info", { content });
 export const listOllamaModels = () => invoke<string[]>("list_ollama_models");
-export const fetchMokahrJobDetail = (url: string) => invoke<JobDetail>("fetch_mokahr_job_detail", { url });
+export const checkOllama = () => invoke<OllamaStatus>("check_ollama");
 // 统一链接解析入口：自动识别 MokaHR / Lever / Greenhouse 等平台
 export const fetchJobDetail = (url: string) => invoke<JobDetail>("fetch_job_detail", { url });
+/** 支持结构化解析的站点，唯一来源在后端。 */
+export const supportedJobHosts = () => invoke<string[]>("supported_job_hosts");
 
 // ---------- Resume ----------
 export const listResumes = () => invoke<Resume[]>("list_resumes");

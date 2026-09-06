@@ -12,6 +12,7 @@ const EN: Record<string, string> = {
   "删除": "Delete",
   "添加": "Add",
   "重命名": "Rename",
+  "编辑": "Edit",
   "预览": "Preview",
   "打开": "Open",
   "关闭": "Close",
@@ -22,7 +23,18 @@ const EN: Record<string, string> = {
   "选择分类": "Select category",
   "暂无数据": "No data",
   "可选": "Optional",
-  "字节": "bytes",
+  "重试": "Retry",
+  "数据加载失败": "Failed to load data",
+  "恢复确认": "Confirm restore",
+  "备份完成": "Backup complete",
+  "导出完成：": "Export completed: ",
+  "备份已创建：": "Backup created: ",
+  "删除投递": "Delete application",
+  "删除投递会同时删除面试、复盘和附件，确认继续？": "Delete this application and all interviews, reviews, and attachments?",
+  "删除该阶段？仍被投递使用的阶段无法删除。": "Delete this stage? A stage still used by applications cannot be deleted.",
+  "删除公司会同时删除其岗位、投递、面试和附件，确认继续？": "Delete this company and all related jobs, applications, interviews, and attachments?",
+  "删除岗位会同时删除相关投递、面试和附件，确认继续？": "Delete this job and all related applications, interviews, and attachments?",
+  "删除后简历文件将从磁盘移除，确认继续？": "Delete this resume file from disk?",
   "中文": "中文",
   "English": "English",
 
@@ -74,9 +86,20 @@ const EN: Record<string, string> = {
   "复盘题库": "Review Bank",
   "简历版本": "Resumes",
   "系统设置": "Settings",
+  "公司、岗位与阶段管理": "Company, job, and stage management",
   "公司与岗位": "Companies & Jobs",
   "导出中…": "Exporting…",
   "导出 Excel": "Export Excel",
+  "备份与恢复": "Backup & Restore",
+  "备份包含业务数据、简历和附件，不包含 Cookie 与 API Key。": "Backups include business data, resumes, and attachments, but exclude cookies and API keys.",
+  "导出完整备份": "Export full backup",
+  "从备份恢复": "Restore from backup",
+  "选择备份保存位置": "Choose backup destination",
+  "选择 OfferFlow 备份目录": "Choose an OfferFlow backup folder",
+  "恢复会在重启后替换当前业务数据，当前数据会保留为 .bak，确认继续？": "Restoring replaces current business data after restart. Current data will be retained as .bak. Continue?",
+  "Cookie 仅发送到此域名及其子域名": "Only send the cookie to this domain and its subdomains",
+  "简历文档": "Resume documents",
+  "面试附件": "Interview attachments",
   "搜索公司 / 岗位 / 部门 / 城市 / 分类 / 渠道":
     "Search company / job / dept / city / category / channel",
   "全部分类": "All categories",
@@ -127,8 +150,8 @@ const EN: Record<string, string> = {
   "面试复盘": "Interview Review",
   "请先粘贴岗位链接": "Paste a job link first",
   "未能解析出岗位名称": "Could not parse the job title",
-  "未能创建公司与岗位记录": "Could not create company & job records",
   "请选择公司与岗位": "Select a company and a job",
+  "今天": "Today",
 
   // ===== 公司与岗位管理 =====
   "新增阶段名称": "New stage name",
@@ -171,6 +194,14 @@ const EN: Record<string, string> = {
   // ===== 复盘题库 =====
   "已沉淀 {n} 条复盘记录": "{n} review notes archived",
   "第 {n} 轮": "Round {n}",
+
+  // ===== 数据看板 · 面试安排 =====
+  "近 {n} 天面试安排": "Interviews in the next {n} days",
+  "暂无待办面试": "No upcoming interviews",
+
+  // ===== 链接解析 =====
+  "已解析：{company} · {title}（保存时创建）": "Parsed: {company} · {title} (created on save)",
+  "请先在「公司与岗位」中添加至少一个阶段": "Add at least one stage under Companies & Jobs first",
   "暂无复盘记录，在面试中填写复盘笔记后会自动沉淀到这里":
     "No review notes yet. Notes saved during interviews appear here.",
 
@@ -211,13 +242,21 @@ const EN: Record<string, string> = {
   "模型": "Model",
   "获取中…": "Fetching…",
   "获取模型": "Fetch models",
-  "模型下载镜像源（可选，供模型下载加速）": "Model mirror (optional, for download acceleration)",
   "接口地址": "API URL",
   "模型名": "Model name",
   "已保存": "Saved",
-  "Ollama 未返回模型，请检查服务是否启动":
-    "Ollama returned no models. Check that the service is running.",
-  "已获取 {n} 个模型，已选择首个": "{n} models found, first one selected",
+  "Ollama 未返回模型，请检查服务是否启动，或手动输入模型名":
+    "Ollama returned no models. Check the service or type a model name manually.",
+  "已获取 {n} 个模型，可从下拉选择或手动输入":
+    "{n} models found. Pick from the list or type manually.",
+  "可手动输入模型名（适用于手动下载的模型）":
+    "Type a model name manually (for manually downloaded models)",
+  "Ollama 服务状态": "Ollama service status",
+  "重新检测": "Re-check",
+  "检测中…": "Detecting…",
+  "服务运行中，可直接获取模型": "Service running — you can fetch models",
+  "已安装但未启动，请运行 ollama serve": "Installed but not running. Run: ollama serve",
+  "未检测到 Ollama，请先安装：": "Ollama not detected. Install it first: ",
 
   // ===== 时间线 =====
   "投递时间线": "Application timeline",

@@ -1,12 +1,14 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
-  createApplication, updateApplication, createCompany, createJob,
-  fetchJobDetail, fetchJdText, extractJdInfo,
+  createApplication, updateApplication, deleteApplication, createCompany, createJob,
+  fetchJobDetail, fetchJdText, extractJdInfo, supportedJobHosts,
 } from "../api";
 import { APPLICATION_STATUS } from "../types";
 import type { Stage, Company, Job, Application } from "../types";
 import { useI18n } from "../i18n";
 import ActivityTimeline from "./ActivityTimeline";
+import { confirm as askConfirm } from "@tauri-apps/plugin-dialog";
+import { useModalFocus } from "../useModalFocus";
 
 interface Props {
   state: { mode: "create" } | { mode: "edit"; app: Application };
@@ -21,8 +23,36 @@ interface Props {
 const field = "w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-400 bg-white";
 const label = "block text-xs font-medium text-neutral-500 mb-1";
 
+const isSupportedJobHost = (value: string, hosts: string[]) => {
+  try {
+    const host = new URL(value).hostname.toLowerCase();
+    return hosts.some((domain) => host === domain || host.endsWith(`.${domain}`));
+  } catch { return false; }
+};
+
+/** 解析结果先留在内存里，直到用户真的保存投递才落库。 */
+type ParsedJob = {
+  companyName: string;
+  title: string;
+  jdText: string | null;
+  department: string | null;
+  location: string | null;
+  category: string | null;
+  salaryMin: number | null;
+  salaryMax: number | null;
+  jdUrl: string;
+};
+
+const today = () => {
+  const d = new Date();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${m}-${day}`;
+};
+
 export default function ApplicationModal({ state, stages, companies, jobs, onClose, onSaved, onOpenInterview }: Props) {
   const { t } = useI18n();
+  const modal = useModalFocus(onClose);
   const app = state.mode === "edit" ? state.app : null;
   const initialCompany = app ? jobs.find((j) => j.id === app.job_id)?.company_id ?? "" : "";
 
@@ -40,14 +70,17 @@ export default function ApplicationModal({ state, stages, companies, jobs, onClo
   // URL 解析
   const [url, setUrl] = useState("");
   const [fetching, setFetching] = useState(false);
+  const [parsed, setParsed] = useState<ParsedJob | null>(null);
+  const [hosts, setHosts] = useState<string[]>([]);
 
-  // 本地列表副本：解析时新建的公司/岗位要即时可见
-  const [companyList, setCompanyList] = useState<Company[]>(companies);
-  const [jobList, setJobList] = useState<Job[]>(jobs);
+  useEffect(() => {
+    // 支持站点列表以后端为准，避免前后端各维护一份。
+    supportedJobHosts().then(setHosts).catch(() => setHosts([]));
+  }, []);
 
   const companyJobs = useMemo(
-    () => jobList.filter((j) => j.company_id === (companyId === "" ? -1 : companyId)),
-    [jobList, companyId],
+    () => jobs.filter((j) => j.company_id === (companyId === "" ? -1 : companyId)),
+    [jobs, companyId],
   );
 
   const handleParseUrl = async () => {
@@ -68,8 +101,7 @@ export default function ApplicationModal({ state, stages, companies, jobs, onClo
       let salaryMax: number | null = null;
       let category: string | null = null;
 
-      const supported = ["mokahr.com", "lever.co", "greenhouse.io"].some((h) => u.includes(h));
-      if (supported) {
+      if (isSupportedJobHost(u, hosts)) {
         const d = await fetchJobDetail(u);
         title = d.title;
         companyName = d.company;
@@ -96,37 +128,30 @@ export default function ApplicationModal({ state, stages, companies, jobs, onClo
         return;
       }
 
-      let company = companyList.find((c) => c.name === companyName);
-      if (!company && companyName) {
-        company = await createCompany({ name: companyName });
-        setCompanyList((prev) => [...prev, company!]);
+      // 解析结果只放进 state：以前这里当场就把公司和岗位写库了，
+      // 用户解析完直接关窗就会留下一堆没有投递的孤儿记录。
+      setParsed({
+        companyName: companyName.trim(),
+        title: title.trim(),
+        jdText,
+        department,
+        location,
+        category,
+        salaryMin,
+        salaryMax,
+        jdUrl: u,
+      });
+      const normalized = companyName.trim().toLocaleLowerCase();
+      const knownCompany = companies.find((c) => c.name.trim().toLocaleLowerCase() === normalized);
+      if (knownCompany) {
+        setCompanyId(knownCompany.id);
+        const knownJob = jobs.find(
+          (j) =>
+            j.company_id === knownCompany.id &&
+            j.title.trim().toLocaleLowerCase() === title.trim().toLocaleLowerCase(),
+        );
+        if (knownJob) setJobId(knownJob.id);
       }
-
-      let job = company
-        ? jobList.find((j) => j.company_id === company!.id && j.title === title)
-        : undefined;
-      if (!job && company) {
-        job = await createJob({
-          companyId: company.id,
-          title,
-          department,
-          location,
-          category,
-          jdUrl: u,
-          jdText,
-          salaryMin,
-          salaryMax,
-        });
-        setJobList((prev) => [...prev, job!]);
-      }
-
-      if (!company || !job) {
-        setError(t("未能创建公司与岗位记录"));
-        return;
-      }
-
-      setCompanyId(company.id);
-      setJobId(job.id);
       if (!channel) setChannel("官网");
     } catch (e) {
       setError(String(e));
@@ -135,16 +160,53 @@ export default function ApplicationModal({ state, stages, companies, jobs, onClo
     }
   };
 
+  /** 保存时才落库：优先用已选中的岗位，否则按解析结果新建公司 / 岗位。 */
+  const resolveJobId = async (): Promise<number> => {
+    if (jobId !== "") return Number(jobId);
+    if (!parsed) throw new Error(t("请选择公司与岗位"));
+    const normalized = parsed.companyName.toLocaleLowerCase();
+    let company: Company | undefined =
+      companyId === ""
+        ? companies.find((c) => c.name.trim().toLocaleLowerCase() === normalized)
+        : companies.find((c) => c.id === companyId);
+    if (!company) {
+      if (!parsed.companyName) throw new Error(t("请选择公司与岗位"));
+      company = await createCompany({ name: parsed.companyName });
+    }
+    const existing = jobs.find(
+      (j) =>
+        j.company_id === company!.id &&
+        j.title.trim().toLocaleLowerCase() === parsed.title.toLocaleLowerCase(),
+    );
+    if (existing) return existing.id;
+    const job = await createJob({
+      companyId: company.id,
+      title: parsed.title,
+      department: parsed.department,
+      location: parsed.location,
+      category: parsed.category,
+      jdUrl: parsed.jdUrl,
+      jdText: parsed.jdText,
+      salaryMin: parsed.salaryMin,
+      salaryMax: parsed.salaryMax,
+    });
+    return job.id;
+  };
+
   const handleSubmit = async () => {
-    if (jobId === "") {
+    if (jobId === "" && !parsed) {
       setError(t("请选择公司与岗位"));
+      return;
+    }
+    if (stages.length === 0) {
+      setError(t("请先在「公司与岗位」中添加至少一个阶段"));
       return;
     }
     setSaving(true);
     setError("");
     try {
       const payload = {
-        jobId: Number(jobId),
+        jobId: await resolveJobId(),
         channel: channel || null,
         resumeVersion: resumeVersion || null,
         stageId,
@@ -165,10 +227,20 @@ export default function ApplicationModal({ state, stages, companies, jobs, onClo
     }
   };
 
+  const handleDelete = async () => {
+    if (!app) return;
+    const ok = await askConfirm(t("删除投递会同时删除面试、复盘和附件，确认继续？"), { title: t("删除确认"), kind: "warning" });
+    if (!ok) return;
+    setSaving(true);
+    try { await deleteApplication(app.id); await onSaved(); }
+    catch (e) { setError(String(e)); }
+    finally { setSaving(false); }
+  };
+
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-20 p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6">
-        <h2 className="text-lg font-semibold mb-4">{state.mode === "edit" ? t("编辑投递") : t("新建投递")}</h2>
+      <div ref={modal.ref} onKeyDown={modal.onKeyDown} role="dialog" aria-modal="true" aria-labelledby="application-modal-title" tabIndex={-1} className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6">
+        <h2 id="application-modal-title" className="text-lg font-semibold mb-4">{state.mode === "edit" ? t("编辑投递") : t("新建投递")}</h2>
 
         {state.mode === "create" && (
           <div className="mb-4">
@@ -192,7 +264,16 @@ export default function ApplicationModal({ state, stages, companies, jobs, onClo
                 {fetching ? t("解析中…") : t("解析")}
               </button>
             </div>
-            <p className="mt-1 text-xs text-neutral-400">{t("解析后自动匹配或新建公司与岗位")}</p>
+            {parsed && jobId === "" ? (
+              <p className="mt-1 text-xs text-neutral-700">
+                {t("已解析：{company} · {title}（保存时创建）", {
+                  company: parsed.companyName || t("未知公司"),
+                  title: parsed.title,
+                })}
+              </p>
+            ) : (
+              <p className="mt-1 text-xs text-neutral-400">{t("解析后自动匹配或新建公司与岗位")}</p>
+            )}
           </div>
         )}
 
@@ -208,7 +289,7 @@ export default function ApplicationModal({ state, stages, companies, jobs, onClo
               }}
             >
               <option value="">{t("选择公司")}</option>
-              {companyList.map((c) => (
+              {companies.map((c) => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
             </select>
@@ -252,7 +333,10 @@ export default function ApplicationModal({ state, stages, companies, jobs, onClo
           </div>
           <div>
             <label className={label}>{t("投递日期")}</label>
-            <input type="date" className={field} value={appliedAt} onChange={(e) => setAppliedAt(e.target.value)} />
+            <div className="flex gap-2">
+              <input type="date" className={field} value={appliedAt} onChange={(e) => setAppliedAt(e.target.value)} />
+              <button type="button" onClick={() => setAppliedAt(today())} className="px-3 py-2 text-sm rounded-md border border-neutral-300 hover:bg-neutral-50 whitespace-nowrap">{t("今天")}</button>
+            </div>
           </div>
         </div>
 
@@ -268,12 +352,10 @@ export default function ApplicationModal({ state, stages, companies, jobs, onClo
         <div className="mt-6 flex justify-between items-center gap-2">
           <div>
             {state.mode === "edit" && onOpenInterview && (
-              <button
-                onClick={() => onOpenInterview(app!)}
-                className="px-4 py-2 text-sm rounded-md bg-neutral-100 hover:bg-neutral-200"
-              >
-                {t("面试复盘")}
-              </button>
+              <div className="flex gap-2">
+                <button onClick={() => onOpenInterview(app!)} className="px-4 py-2 text-sm rounded-md bg-neutral-100 hover:bg-neutral-200">{t("面试复盘")}</button>
+                <button onClick={handleDelete} disabled={saving} className="px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-md">{t("删除投递")}</button>
+              </div>
             )}
           </div>
           <div className="flex gap-2">
