@@ -2,6 +2,7 @@ mod commands;
 mod db;
 mod extract;
 mod models;
+mod protect;
 mod snapshot;
 
 use db::Db;
@@ -33,6 +34,9 @@ fn start(db_state: Db, context: tauri::Context) {
             use tauri::Manager;
             app.asset_protocol_scope()
                 .allow_directory(db::default_db_dir(), true)?;
+            // 清理过期回收站、同步镜像备份：放到后台，不拖慢启动
+            let handle = app.handle().clone();
+            std::thread::spawn(move || protect::run_startup_tasks(&handle.state::<Db>()));
             Ok(())
         })
         .manage(db_state)
@@ -92,9 +96,20 @@ fn start(db_state: Db, context: tauri::Context) {
             snapshot::save_job_snapshot,
             snapshot::list_job_snapshots,
             snapshot::delete_job_snapshot,
+            protect::get_protect_settings,
+            protect::set_protect_settings,
+            protect::sync_mirror_now,
+            protect::get_mirror_status,
+            protect::open_trash_dir,
         ])
-        .run(context)
-        .expect("error while running tauri application");
+        .build(context)
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                use tauri::Manager;
+                app.state::<Db>().close_for_exit();
+            }
+        });
 }
 
 fn fail(err: &str, db_path: &Path) {

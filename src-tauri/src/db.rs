@@ -41,6 +41,22 @@ impl Db {
     pub fn new(conn: Connection) -> Self {
         Self(RecoveringMutex::new(conn))
     }
+
+    /// 退出前收尾：把 WAL 合并回主库并真正关闭连接。
+    ///
+    /// 连接放在 Tauri 的托管状态里，进程退出时不会被 drop，SQLite 来不及收尾，
+    /// 就会在数据目录里留下 `-wal` / `-shm`。最后一个连接正常关闭时 SQLite 会把它们删掉。
+    /// 多开时其他实例仍连着同一个库：checkpoint 只合并当前能合并的部分，
+    /// 文件由最后退出的那个实例清理，互不影响。
+    pub fn close_for_exit(&self) {
+        let mut conn = self.0.lock();
+        let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
+        // 退出后若还有迟到的命令，只会落到这个空的内存库上，不会再碰数据文件。
+        if let Ok(placeholder) = Connection::open_in_memory() {
+            let real = std::mem::replace(&mut *conn, placeholder);
+            let _ = real.close();
+        }
+    }
 }
 
 const SCHEMA: &str = r#"
@@ -226,6 +242,9 @@ const LEGACY_DATA_DIR: &str = "D:/OfferFlow/data";
 pub fn prepare_data_dir() -> PathBuf {
     let target = default_db_dir();
     migrate_data_dir(Path::new(LEGACY_DATA_DIR), &target);
+    // 目录不存在时 SQLite 只会报「unable to open database file」：新装的电脑、
+    // 被清掉的 AppData 都会这样打不开，所以这里无论如何先把目录建出来。
+    let _ = fs::create_dir_all(&target);
     target
 }
 
@@ -241,7 +260,8 @@ fn copy_tree(src: &Path, dst: &Path) -> Result<(), String> {
         let to = dst.join(entry.file_name());
         if ty.is_dir() {
             copy_tree(&from, &to)?;
-        } else {
+        } else if !to.exists() {
+            // 目标里已有的文件一律不覆盖：它可能比旧目录里的更新
             fs::copy(&from, &to).map_err(|e| e.to_string())?;
         }
     }
@@ -252,12 +272,23 @@ fn copy_tree(src: &Path, dst: &Path) -> Result<(), String> {
 /// 中途失败下次启动会重来，不会留下半套数据。
 fn migrate_data_dir(legacy: &Path, target: &Path) {
     let marker = legacy.join(".migrated");
-    // 只迁一次：标记文件在，就说明数据已经搬到别处并且可能已经被改过，
-    // 再搬一次就会用旧数据盖掉新数据。
-    if legacy == target || marker.exists() || !legacy.join("offerflow.db").exists() {
+    if legacy == target || !legacy.join("offerflow.db").exists() {
         return;
     }
-    if target.join("offerflow.db").exists() || fs::create_dir_all(target).is_err() {
+    // 目标已有数据库：数据已经在新位置、可能已被改过，绝不能拿旧数据覆盖。
+    if target.join("offerflow.db").exists() {
+        return;
+    }
+    // 已经迁过的情况下，只有「当初迁去的正是这个目录、现在库却不见了」才再迁一次：
+    // 标记只证明当时写过，不证明数据还在（AppData 被清、当时的写入落在了隔离环境里）。
+    // 换到另一个新位置（OFFERFLOW_DATA_DIR、绿色版 data/）是用户想要一份新数据，不能把旧数据塞进去。
+    if let Ok(recorded) = fs::read_to_string(&marker) {
+        let recorded = recorded.trim().trim_start_matches("migrated to").trim();
+        if recorded != target.display().to_string() {
+            return;
+        }
+    }
+    if fs::create_dir_all(target).is_err() {
         return;
     }
     for dir in ["attachments", "resumes"] {
@@ -268,7 +299,8 @@ fn migrate_data_dir(legacy: &Path, target: &Path) {
     }
     for file in ["settings.json", "settings.secrets.json"] {
         let from = legacy.join(file);
-        if from.exists() && fs::copy(&from, target.join(file)).is_err() {
+        let to = target.join(file);
+        if from.exists() && !to.exists() && fs::copy(&from, &to).is_err() {
             return;
         }
     }
@@ -320,6 +352,9 @@ pub fn init(db_path: &Path) -> Result<Connection, String> {
             "数据库版本 {current_version} 高于当前应用支持的 {SCHEMA_VERSION}，请升级应用"
         ));
     }
+    if current_version < SCHEMA_VERSION {
+        backup_before_upgrade(&conn, db_path, current_version)?;
+    }
     conn.execute_batch(SCHEMA).map_err(|e| e.to_string())?;
     {
         let tx = conn.transaction().map_err(|e| e.to_string())?;
@@ -336,6 +371,38 @@ pub fn init(db_path: &Path) -> Result<Connection, String> {
     }
     repair_managed_file_paths(&conn, db_path.parent().unwrap_or_else(|| Path::new(".")))?;
     Ok(conn)
+}
+
+/// 升级表结构前，先把旧库完整导出一份到数据目录下的 `backups/`。
+///
+/// 升级本身在事务里，失败会整体回滚；这份副本防的是「升级逻辑有 bug、但事务成功提交」
+/// 把数据改坏的情况。备份不成功就不升级，宁可这次打不开，也不冒险改动唯一的一份数据。
+/// 只备份数据库：升级只改库，不动录音、简历等文件。
+fn backup_before_upgrade(conn: &Connection, db_path: &Path, from_version: i64) -> Result<(), String> {
+    let has_data: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'applications')",
+            [],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    if !has_data {
+        return Ok(()); // 全新的空库，没有可备份的内容
+    }
+    let dir = db_path.parent().unwrap_or_else(|| Path::new(".")).join("backups");
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_millis();
+    let dest = dir.join(format!("offerflow-v{from_version}-before-v{SCHEMA_VERSION}-{stamp}.db"));
+    let escaped = dest.to_string_lossy().replace('\'', "''");
+    fs::create_dir_all(&dir)
+        .map_err(|e| e.to_string())
+        .and_then(|_| {
+            conn.execute_batch(&format!("VACUUM INTO '{escaped}'"))
+                .map_err(|e| e.to_string())
+        })
+        .map_err(|e| format!("升级数据库前备份失败，已停止升级以保护现有数据：{e}"))
 }
 
 /// 旧版把 JD 文本直接存在 jobs.jd_text 里；升级时各转成一份快照，
@@ -748,6 +815,30 @@ mod tests {
     }
 
     #[test]
+    fn close_for_exit_leaves_no_wal_files() {
+        let path = temp_db("close");
+        let db = Db::new(init(&path).unwrap());
+        db.0.lock()
+            .execute("INSERT INTO companies (name) VALUES ('收尾测试')", [])
+            .unwrap();
+        let wal = PathBuf::from(format!("{}-wal", path.display()));
+        let shm = PathBuf::from(format!("{}-shm", path.display()));
+        assert!(wal.exists(), "写入后应当存在 WAL 文件");
+
+        db.close_for_exit();
+
+        assert!(!wal.exists(), "关闭后不应残留 -wal");
+        assert!(!shm.exists(), "关闭后不应残留 -shm");
+        let conn = Connection::open(&path).unwrap();
+        let n: i64 = conn
+            .query_row("SELECT COUNT(*) FROM companies WHERE name = '收尾测试'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 1, "WAL 里的数据应已合并进主库");
+        drop(conn);
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
     fn migrates_legacy_data_dir_exactly_once() {
         let base = std::env::temp_dir().join(format!(
             "offerflow-migrate-{}-{}",
@@ -770,22 +861,41 @@ mod tests {
         assert!(target.join("settings.json").exists());
         assert!(legacy.join("offerflow.db").exists(), "原目录必须原样保留");
 
-        // 迁移后目标侧的改动不能被第二次迁移盖掉。
+        // 目标库还在：即使再跑一次也不能动目标侧的任何东西。
         fs::write(target.join("resumes/a.pdf"), b"edited").unwrap();
-        fs::remove_file(target.join("offerflow.db")).unwrap();
+        let db_before = fs::read(target.join("offerflow.db")).unwrap();
         migrate_data_dir(&legacy, &target);
-        assert!(
-            !target.join("offerflow.db").exists(),
-            "标记存在时不应再迁移"
-        );
+        assert_eq!(fs::read(target.join("offerflow.db")).unwrap(), db_before);
         assert_eq!(fs::read(target.join("resumes/a.pdf")).unwrap(), b"edited");
+
+        // 标记在、但目标库丢了（换电脑、AppData 被清）：要重新迁回来，
+        // 同时目标侧已有的文件仍然不能被旧文件覆盖。
+        fs::remove_file(target.join("offerflow.db")).unwrap();
+        assert!(legacy.join(".migrated").exists());
+        migrate_data_dir(&legacy, &target);
+        assert!(target.join("offerflow.db").exists(), "目标库丢失时应重新迁移");
+        assert_eq!(fs::read(target.join("resumes/a.pdf")).unwrap(), b"edited");
+
+        // 目标目录整个不存在（本次出问题的情形）：同样迁回来
+        fs::remove_dir_all(&target).unwrap();
+        migrate_data_dir(&legacy, &target);
+        assert!(target.join("offerflow.db").exists());
+        assert_eq!(fs::read(target.join("resumes/a.pdf")).unwrap(), b"resume");
+
+        // 换到另一个全新的数据目录：用户要的是一份新数据，旧数据不能被塞进去
+        let elsewhere = base.join("elsewhere");
+        migrate_data_dir(&legacy, &elsewhere);
+        assert!(!elsewhere.join("offerflow.db").exists(), "新位置不应被迁入旧数据");
 
         let _ = fs::remove_dir_all(base);
     }
 
     #[test]
     fn upgrades_v1_jd_text_into_snapshots_once() {
-        let path = temp_db("upgrade");
+        // 单独的目录：升级会在库旁边建 backups/，不能落到公共临时目录里
+        let dir = temp_db("upgrade-dir");
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("offerflow.db");
         {
             let conn = init(&path).unwrap();
             conn.execute("INSERT INTO companies(name) VALUES('Example')", [])
@@ -812,7 +922,32 @@ mod tests {
                 .collect();
             assert_eq!(rows, vec![(1, "legacy".to_string(), "JD 原文".to_string())]);
         }
-        let _ = fs::remove_file(&path);
+
+        // 升级前留了且只留了一份副本（第二次启动已是新版本，不再备份），内容是升级前的旧库
+        let backups: Vec<PathBuf> = fs::read_dir(dir.join("backups"))
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .collect();
+        assert_eq!(backups.len(), 1, "应当恰好有一份升级前备份：{backups:?}");
+        let old = Connection::open_with_flags(&backups[0], OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+        let version: i64 = old.pragma_query_value(None, "user_version", |r| r.get(0)).unwrap();
+        assert_eq!(version, 1);
+        let snapshots: i64 = old
+            .query_row("SELECT COUNT(*) FROM job_snapshots", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(snapshots, 0, "备份应是迁移之前的状态");
+        drop(old);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn fresh_database_needs_no_upgrade_backup() {
+        let dir = temp_db("fresh-dir");
+        fs::create_dir_all(&dir).unwrap();
+        let conn = init(&dir.join("offerflow.db")).unwrap();
+        drop(conn);
+        assert!(!dir.join("backups").exists(), "全新的空库不应生成升级备份");
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

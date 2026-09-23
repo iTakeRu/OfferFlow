@@ -95,17 +95,28 @@ fn friendly_db_error(err: rusqlite::Error, context: &str) -> String {
     text
 }
 
+/// 删除数据目录里的托管文件（录音、简历、快照等）。开了回收站就先移进回收站。
 pub(crate) fn remove_managed_files(paths: Vec<String>) {
-    remove_files_under_root(paths, crate::db::default_db_dir());
+    let root = crate::db::default_db_dir();
+    let trash = crate::protect::trash_batch(&root);
+    remove_files_under_root(paths, root, trash.as_deref());
 }
 
-fn remove_files_under_root(paths: Vec<String>, root: std::path::PathBuf) {
+fn remove_files_under_root(paths: Vec<String>, root: std::path::PathBuf, trash: Option<&Path>) {
     let canonical_root = root.canonicalize().unwrap_or(root);
     for raw in paths {
         let path = std::path::PathBuf::from(raw);
         if let Ok(canonical) = path.canonicalize() {
             if canonical.starts_with(&canonical_root) {
-                let _ = std::fs::remove_file(&canonical);
+                match trash {
+                    // 移进回收站失败就把文件留在原地：宁可多占点空间，也不能丢
+                    Some(batch) => {
+                        let _ = crate::protect::move_to_trash(&canonical, &canonical_root, batch);
+                    }
+                    None => {
+                        let _ = std::fs::remove_file(&canonical);
+                    }
+                }
                 if let Some(parent) = canonical.parent() {
                     let _ = std::fs::remove_dir(parent);
                 }
@@ -155,9 +166,34 @@ mod tests {
                 outside.to_string_lossy().to_string(),
             ],
             root,
+            None,
         );
         assert!(!inside.exists());
         assert!(outside.exists());
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn managed_cleanup_moves_into_trash_when_enabled() {
+        let base = std::env::temp_dir().join(format!("offerflow-trash-{}", std::process::id()));
+        let root = base.join("data");
+        std::fs::create_dir_all(root.join("attachments/3")).unwrap();
+        let inside = root.join("attachments/3/interview.m4a");
+        let outside = base.join("keep.txt");
+        std::fs::write(&inside, b"audio").unwrap();
+        std::fs::write(&outside, b"keep").unwrap();
+        let batch = root.join("trash/1000");
+        remove_files_under_root(
+            vec![
+                inside.to_string_lossy().to_string(),
+                outside.to_string_lossy().to_string(),
+            ],
+            root.clone(),
+            Some(&batch),
+        );
+        assert!(!inside.exists(), "原位置的文件应被移走");
+        assert_eq!(std::fs::read(batch.join("attachments/3/interview.m4a")).unwrap(), b"audio");
+        assert!(outside.exists(), "数据目录之外的文件不能动");
         let _ = std::fs::remove_dir_all(base);
     }
 }
@@ -1381,10 +1417,39 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn vacuum_to(conn: &rusqlite::Connection, dest: &Path) -> Result<(), String> {
+pub(crate) fn vacuum_to(conn: &rusqlite::Connection, dest: &Path) -> Result<(), String> {
     let escaped = dest.to_string_lossy().replace('\'', "''");
     conn.execute_batch(&format!("VACUUM INTO '{}'", escaped))
         .map_err(|e| e.to_string())
+}
+
+/// 备份位置不能在数据目录里，也不能是数据目录的上级，否则备份会把自己套进去。
+pub(crate) fn ensure_outside_data_dir(target: &Path, data_dir: &Path) -> Result<(), String> {
+    let target = target.canonicalize().map_err(|e| e.to_string())?;
+    let data = data_dir.canonicalize().unwrap_or_else(|_| data_dir.to_path_buf());
+    if target.starts_with(&data) || data.starts_with(&target) {
+        return Err("备份位置不能是应用数据目录或其上级目录".to_string());
+    }
+    Ok(())
+}
+
+/// 把设置写进备份目录，但抹掉 Cookie 与 API Key：备份常被拷来拷去，不能带着密钥走。
+pub(crate) fn write_sanitized_settings(data_dir: &Path, dest_dir: &Path) -> Result<(), String> {
+    let settings = data_dir.join("settings.json");
+    if !settings.exists() {
+        return Ok(());
+    }
+    let raw = std::fs::read_to_string(&settings).map_err(|e| e.to_string())?;
+    let mut value: serde_json::Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+    if let Some(obj) = value.as_object_mut() {
+        obj.insert("openaiKey".to_string(), serde_json::Value::String(String::new()));
+        obj.insert("cookie".to_string(), serde_json::Value::String(String::new()));
+    }
+    std::fs::write(
+        dest_dir.join("settings.json"),
+        serde_json::to_vec_pretty(&value).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command(async)]
@@ -1392,11 +1457,7 @@ pub fn export_backup(state: State<Db>, target_dir: String) -> Result<String, Str
     let base = std::path::PathBuf::from(&target_dir);
     let data_dir = crate::db::default_db_dir();
     std::fs::create_dir_all(&base).map_err(|e| e.to_string())?;
-    let base_canonical = base.canonicalize().map_err(|e| e.to_string())?;
-    let data_canonical = data_dir.canonicalize().unwrap_or(data_dir.clone());
-    if base_canonical.starts_with(&data_canonical) || data_canonical.starts_with(&base_canonical) {
-        return Err("备份目标不能是应用数据目录或其父目录".to_string());
-    }
+    ensure_outside_data_dir(&base, &data_dir)?;
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|e| e.to_string())?
@@ -1409,39 +1470,13 @@ pub fn export_backup(state: State<Db>, target_dir: String) -> Result<String, Str
         let _ = std::fs::remove_file(&dest);
         vacuum_to(&conn, &dest)?;
     }
-    let data_dir = crate::db::default_db_dir();
-    let src_att = data_dir.join("attachments");
-    if src_att.exists() {
-        copy_dir_recursive(&src_att, &dir.join("attachments"))?;
-    }
-    let src_resumes = data_dir.join("resumes");
-    if src_resumes.exists() {
-        copy_dir_recursive(&src_resumes, &dir.join("resumes"))?;
-    }
-    let src_snapshots = data_dir.join("snapshots");
-    if src_snapshots.exists() {
-        copy_dir_recursive(&src_snapshots, &dir.join("snapshots"))?;
-    }
-    let settings = data_dir.join("settings.json");
-    if settings.exists() {
-        let raw = std::fs::read_to_string(&settings).map_err(|e| e.to_string())?;
-        let mut value: serde_json::Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
-        if let Some(obj) = value.as_object_mut() {
-            obj.insert(
-                "openaiKey".to_string(),
-                serde_json::Value::String(String::new()),
-            );
-            obj.insert(
-                "cookie".to_string(),
-                serde_json::Value::String(String::new()),
-            );
+    for sub in ["attachments", "resumes", "snapshots"] {
+        let src = data_dir.join(sub);
+        if src.exists() {
+            copy_dir_recursive(&src, &dir.join(sub))?;
         }
-        std::fs::write(
-            dir.join("settings.json"),
-            serde_json::to_vec_pretty(&value).map_err(|e| e.to_string())?,
-        )
-        .map_err(|e| e.to_string())?;
     }
+    write_sanitized_settings(&data_dir, &dir)?;
     Ok(dir.to_string_lossy().to_string())
 }
 
