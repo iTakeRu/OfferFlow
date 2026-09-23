@@ -24,12 +24,12 @@ export default function ReviewBankView() {
   return (
     <div className="space-y-4">
       {error && <div className="text-sm text-red-600">{error}</div>}
-      <div className="text-sm font-semibold text-neutral-700">{t("已沉淀 {n} 条复盘记录", { n: notes.length })}</div>
+      <div className="text-[11px] font-bold tracking-[0.22em] text-ochre-dark">{t("已沉淀 {n} 条复盘记录", { n: notes.length })}</div>
       <div className="grid grid-cols-2 gap-4">
         {notes.map((n) => (
           <div key={n.id} className="bg-white rounded-xl border border-neutral-200 p-4">
             <div className="flex items-center justify-between">
-              <div className="text-sm font-semibold">{n.job_title}</div>
+              <div className="font-serif text-base font-bold">{n.job_title}</div>
               <span className="text-xs text-neutral-400">{n.company_name}</span>
             </div>
             <div className="text-xs text-neutral-500 mt-1">

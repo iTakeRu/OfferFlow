@@ -9,6 +9,7 @@ import { useI18n } from "./i18n";
 import KanbanBoard from "./components/KanbanBoard";
 import ListView from "./components/ListView";
 import ApplicationModal from "./components/ApplicationModal";
+import appIcon from "../src-tauri/icons/128x128@2x.png";
 
 const DashboardView = lazy(() => import("./components/DashboardView"));
 const ReviewBankView = lazy(() => import("./components/ReviewBankView"));
@@ -20,9 +21,29 @@ const SettingsPanel = lazy(() => import("./components/SettingsPanel"));
 type AppModalState = { mode: "create" } | { mode: "edit"; app: Application } | null;
 type NavKey = "board" | "list" | "dashboard" | "review" | "resume";
 
+type AppsView = "board" | "list";
+
+// 每个栏目像杂志的一个版块：编号 + 大标题。
+// 看板和列表只是「投递」的两种排法，共用一个栏目。
+const VIEW_META: Record<NavKey, { no: string; title: string }> = {
+  board: { no: "01", title: "投递" },
+  list: { no: "01", title: "投递" },
+  dashboard: { no: "02", title: "投递统计" },
+  review: { no: "03", title: "面试复盘" },
+  resume: { no: "04", title: "简历版本" },
+};
+
+const issueDate = () => {
+  const d = new Date();
+  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")}`;
+};
+
+// 鼠标点击不留焦点框；键盘 Tab 时显示一条内嵌的赭石色焦点线，和直角风格一致
 const navBtn = (active: boolean) =>
-  "w-full text-left px-3 py-2 text-sm rounded-md " +
-  (active ? "bg-neutral-100 text-neutral-900 font-medium" : "text-neutral-600 hover:bg-neutral-50");
+  "w-full text-left px-3 py-2 text-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ochre " +
+  (active ? "bg-paper text-navy font-bold" : "text-paper hover:bg-navy-soft");
+
+const sectionLabel = "px-3 pt-5 pb-1.5 text-[11px] font-bold tracking-[0.22em] text-navy-muted";
 
 export default function App() {
   const { t, lang, setLang } = useI18n();
@@ -33,6 +54,12 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [nav, setNav] = useState<NavKey>("board");
+  // 从别的栏目回到「投递」时，沿用上次选的看板 / 列表
+  const [appsView, setAppsView] = useState<AppsView>("board");
+  const showApps = (view: AppsView) => {
+    setAppsView(view);
+    setNav(view);
+  };
   const [query, setQuery] = useState("");
   const [catFilter, setCatFilter] = useState("");
   const [appModal, setAppModal] = useState<AppModalState>(null);
@@ -121,44 +148,54 @@ export default function App() {
     return <div className="min-h-screen flex flex-col gap-4 items-center justify-center p-8 text-center">
       <div className="text-red-700 font-medium">{t("数据加载失败")}</div>
       <div className="text-sm text-neutral-600 max-w-xl break-words">{loadError}</div>
-      <button className="px-4 py-2 rounded-md bg-neutral-900 text-white" onClick={() => { setLoading(true); setLoadError(""); refresh().catch((e) => setLoadError(String(e))).finally(() => setLoading(false)); }}>{t("重试")}</button>
+      <button className="px-4 py-2 bg-navy text-paper font-bold" onClick={() => { setLoading(true); setLoadError(""); refresh().catch((e) => setLoadError(String(e))).finally(() => setLoading(false)); }}>{t("重试")}</button>
     </div>;
   }
 
   const activeJob = interviewApp ? jobMap.get(interviewApp.job_id) : undefined;
   const activeCompany = activeJob ? companyMap.get(activeJob.company_id) : undefined;
 
+  const meta = VIEW_META[nav];
+  const inApps = nav === "board" || nav === "list";
+  // 只有投递页有实际数字可说；其他栏目不放标语式的导语
+  const deck = inApps
+    ? t("{total} 份投递，{active} 份正在推进。", {
+      total: filtered.length,
+      active: filtered.filter((a) => a.status === "推进中").length,
+    })
+    : null;
+
   return (
-    <div className="min-h-screen bg-neutral-100 text-neutral-800 flex">
-      <aside className="w-56 shrink-0 bg-white border-r border-neutral-200 flex flex-col h-screen sticky top-0">
-        <div className="px-5 py-4 border-b border-neutral-200 flex items-center justify-between">
-          <h1 className="text-lg font-bold tracking-tight">OfferFlow</h1>
+    <div className="min-h-screen bg-paper text-ink flex">
+      <aside className="w-60 shrink-0 bg-navy text-paper flex flex-col h-screen sticky top-0">
+        <div className="px-5 pt-6 pb-4 flex items-center gap-2.5">
+          <img src={appIcon} alt="" className="w-7 h-7" />
+          <h1 className="font-serif text-xl font-black tracking-wide">OfferFlow</h1>
           <button
             onClick={() => setLang(lang === "zh" ? "en" : "zh")}
-            className="text-xs px-2 py-1 rounded border border-neutral-300 text-neutral-600 hover:bg-neutral-50"
+            className="ml-auto text-xs font-semibold px-2 py-1 border border-navy-muted text-paper hover:bg-navy-soft"
             title={lang === "zh" ? "Switch to English" : "切换为中文"}
           >
             {lang === "zh" ? "EN" : "中"}
           </button>
         </div>
-        <div className="p-3">
+        <div className="px-4 pb-1">
           <button
             onClick={() => setAppModal({ mode: "create" })}
-            className="w-full px-3 py-2 text-sm rounded-md bg-neutral-900 text-white hover:bg-neutral-800"
+            className="w-full py-2.5 text-sm font-bold tracking-wider bg-ochre text-ink hover:bg-ochre-light"
           >
             {t("+ 新建投递")}
           </button>
         </div>
-        <nav className="flex-1 overflow-y-auto px-3 space-y-1">
-          <div className="px-3 pt-2 pb-1 text-xs text-neutral-400">{t("视图")}</div>
-          <button className={navBtn(nav === "board")} onClick={() => setNav("board")}>{t("全部看板")}</button>
-          <button className={navBtn(nav === "list")} onClick={() => setNav("list")}>{t("列表明细")}</button>
-          <button className={navBtn(nav === "dashboard")} onClick={() => setNav("dashboard")}>{t("数据看板")}</button>
-          <div className="px-3 pt-4 pb-1 text-xs text-neutral-400">{t("沉淀")}</div>
-          <button className={navBtn(nav === "review")} onClick={() => setNav("review")}>{t("复盘题库")}</button>
+        <nav className="flex-1 overflow-y-auto px-3 space-y-0.5">
+          <div className={sectionLabel}>{t("求职")}</div>
+          <button className={navBtn(inApps)} onClick={() => showApps(appsView)}>{t("投递")}</button>
+          <button className={navBtn(nav === "dashboard")} onClick={() => setNav("dashboard")}>{t("投递统计")}</button>
+          <div className={sectionLabel}>{t("积累")}</div>
+          <button className={navBtn(nav === "review")} onClick={() => setNav("review")}>{t("面试复盘")}</button>
           <button className={navBtn(nav === "resume")} onClick={() => setNav("resume")}>{t("简历版本")}</button>
         </nav>
-        <div className="p-3 border-t border-neutral-200 space-y-1">
+        <div className="p-3 border-t border-navy-soft space-y-0.5">
           <button className={navBtn(false)} onClick={() => setShowSettings(true)}>{t("系统设置")}</button>
           <button className={navBtn(false)} onClick={() => setShowManage(true)}>{t("公司与岗位")}</button>
           <button className={navBtn(false)} onClick={handleExport} disabled={exporting}>
@@ -168,46 +205,66 @@ export default function App() {
       </aside>
 
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="bg-white border-b border-neutral-200 px-6 py-3 flex items-center gap-3 sticky top-0 z-10">
-          <input
-            className="flex-1 max-w-md rounded-md border border-neutral-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-400 bg-white"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={t("搜索公司 / 岗位 / 部门 / 城市 / 分类 / 渠道")}
-          />
-          <select
-            className="rounded-md border border-neutral-300 px-2 py-1.5 text-sm bg-white"
-            value={catFilter}
-            onChange={(e) => setCatFilter(e.target.value)}
-          >
-            <option value="">{t("全部分类")}</option>
-            {CATEGORIES.map((c) => (
-              <option key={c} value={c}>{t(c)}</option>
-            ))}
-          </select>
-          <button
-            onClick={() => setAppModal({ mode: "create" })}
-            className="px-3 py-1.5 text-sm rounded-md border border-neutral-300 hover:bg-neutral-50 whitespace-nowrap"
-          >
-            {t("快速粘贴链接")}
-          </button>
-          <div className="flex rounded-md border border-neutral-300 overflow-hidden">
+        <header className="bg-paper px-8 pt-7 pb-5 border-b-2 border-ink flex flex-wrap items-end gap-x-6 gap-y-4 sticky top-0 z-10">
+          <div className="min-w-0">
+            <div className="flex items-center gap-3 text-xs font-bold tracking-[0.22em] text-ochre-dark">
+              <span>NO.{meta.no}</span>
+              <span className="w-12 h-0.5 bg-ink" />
+              <span className="text-ink tabular-nums">{issueDate()}</span>
+            </div>
+            <h2 className="mt-2 font-serif text-4xl font-black tracking-wide leading-tight">{t(meta.title)}</h2>
+            {deck && <p className="mt-1.5 text-sm font-medium text-navy">{deck}</p>}
+          </div>
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            {/* 搜索、分类筛选和看板 / 列表切换只作用于投递，别的栏目不显示 */}
+            {inApps && (
+              <>
+                <input
+                  className="w-72 border-[1.5px] border-ink bg-card px-3 py-2 text-sm placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-navy"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder={t("搜索公司 / 岗位 / 部门 / 城市 / 分类 / 渠道")}
+                />
+                <select
+                  className="border-[1.5px] border-ink bg-card px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy"
+                  value={catFilter}
+                  onChange={(e) => setCatFilter(e.target.value)}
+                >
+                  <option value="">{t("全部分类")}</option>
+                  {CATEGORIES.map((c) => (
+                    <option key={c} value={c}>{t(c)}</option>
+                  ))}
+                </select>
+              </>
+            )}
             <button
-              onClick={() => setNav("board")}
-              className={"px-3 py-1.5 text-sm " + (nav === "board" ? "bg-neutral-900 text-white" : "hover:bg-neutral-50")}
+              onClick={() => setAppModal({ mode: "create" })}
+              className="px-3 py-2 text-sm font-bold border-[1.5px] border-ink hover:bg-ink hover:text-paper whitespace-nowrap"
             >
-              {t("看板")}
+              {t("快速粘贴链接")}
             </button>
-            <button
-              onClick={() => setNav("list")}
-              className={"px-3 py-1.5 text-sm " + (nav === "list" ? "bg-neutral-900 text-white" : "hover:bg-neutral-50")}
-            >
-              {t("列表")}
-            </button>
+            {inApps && (
+              <div className="flex border-[1.5px] border-ink p-0.5" role="group" aria-label={t("排列方式")}>
+                <button
+                  onClick={() => showApps("board")}
+                  aria-pressed={nav === "board"}
+                  className={"px-3 py-1.5 text-sm " + (nav === "board" ? "bg-navy text-paper font-bold" : "hover:bg-neutral-100")}
+                >
+                  {t("看板")}
+                </button>
+                <button
+                  onClick={() => showApps("list")}
+                  aria-pressed={nav === "list"}
+                  className={"px-3 py-1.5 text-sm " + (nav === "list" ? "bg-navy text-paper font-bold" : "hover:bg-neutral-100")}
+                >
+                  {t("列表")}
+                </button>
+              </div>
+            )}
           </div>
         </header>
 
-        <main className="flex-1 overflow-auto p-6">
+        <main className="flex-1 overflow-auto px-8 py-6">
           {nav === "board" && (
             <KanbanBoard
               stages={stages}

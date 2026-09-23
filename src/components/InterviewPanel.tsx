@@ -30,9 +30,9 @@ interface Draft {
 }
 
 const field =
-  "w-full rounded-md border border-neutral-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-400 bg-white";
+  "w-full rounded-md border border-neutral-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy bg-white";
 const fieldAuto =
-  "rounded-md border border-neutral-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-400 bg-white";
+  "rounded-md border border-neutral-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy bg-white";
 const label = "block text-xs font-medium text-neutral-500 mb-1";
 
 const KIND_LABEL: Record<string, string> = { audio: "音频", video: "视频", file: "文件" };
@@ -193,11 +193,11 @@ export default function InterviewPanel({ app, jobTitle, companyName, onClose }: 
   };
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-30 p-4">
-      <div ref={modal.ref} onKeyDown={modal.onKeyDown} role="dialog" aria-modal="true" aria-label={t("面试复盘")} tabIndex={-1} className="bg-white rounded-xl shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
+    <div className="fixed inset-0 bg-ink/45 flex items-center justify-center z-30 p-4">
+      <div ref={modal.ref} onKeyDown={modal.onKeyDown} role="dialog" aria-modal="true" aria-label={t("面试复盘")} tabIndex={-1} className="bg-white rounded-2xl shadow-xl border-2 border-ink w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
         <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-200">
           <div>
-            <h2 className="text-lg font-semibold">{t("面试复盘")}</h2>
+            <h2 className="font-serif text-xl font-black tracking-wide">{t("面试复盘")}</h2>
             <p className="text-sm text-neutral-500">
               {companyName || t("未知公司")} · {jobTitle || t("未知岗位")}
             </p>
@@ -205,7 +205,7 @@ export default function InterviewPanel({ app, jobTitle, companyName, onClose }: 
           <div className="flex gap-2">
             <button
               onClick={addRound}
-              className="px-3 py-1.5 text-sm rounded-md bg-neutral-900 text-white hover:bg-neutral-800"
+              className="px-3 py-1.5 text-sm rounded-md bg-navy text-paper hover:bg-navy-deep"
             >
               {t("+ 新增一轮")}
             </button>
@@ -385,7 +385,7 @@ export default function InterviewPanel({ app, jobTitle, companyName, onClose }: 
                       <button
                         onClick={() => saveRound(it.id)}
                         disabled={savingId === it.id}
-                        className="px-4 py-2 text-sm rounded-md bg-neutral-900 text-white hover:bg-neutral-800 disabled:opacity-50"
+                        className="px-4 py-2 text-sm rounded-md bg-navy text-paper hover:bg-navy-deep disabled:opacity-50"
                       >
                         {savingId === it.id ? t("保存中…") : t("保存本轮")}
                       </button>

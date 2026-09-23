@@ -44,7 +44,7 @@ export default function ResumeView({ onChanged }: Props) {
   };
 
   const handleDelete = async (id: number) => {
-    const ok = await askConfirm(t("删除后简历文件将从磁盘移除，确认继续？"), { title: t("删除确认"), kind: "warning" });
+    const ok = await askConfirm(t("确认删除这份简历？开启回收站时，文件会先移到回收站。"), { title: t("删除确认"), kind: "warning" });
     if (!ok) return;
     try {
       setError("");
@@ -91,11 +91,11 @@ export default function ResumeView({ onChanged }: Props) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <div className="text-sm font-semibold text-neutral-700">{t("简历版本（{n}）", { n: resumes.length })}</div>
+        <div className="text-[11px] font-bold tracking-[0.22em] text-ochre-dark">{t("简历版本（{n}）", { n: resumes.length })}</div>
         <button
           onClick={handleImport}
           disabled={importing}
-          className="px-3 py-1.5 text-sm rounded-md bg-neutral-900 text-white hover:bg-neutral-800 disabled:opacity-50"
+          className="px-3 py-1.5 text-sm rounded-md bg-navy text-paper hover:bg-navy-deep disabled:opacity-50"
         >
           {importing ? t("导入中…") : t("+ 导入简历")}
         </button>
@@ -124,7 +124,7 @@ export default function ResumeView({ onChanged }: Props) {
                 <div className="flex items-center gap-2 shrink-0 ml-3">
                   {isEditing ? (
                     <>
-                      <button onClick={saveEdit} className="px-2 py-1 text-sm rounded bg-neutral-900 text-white">{t("保存")}</button>
+                      <button onClick={saveEdit} className="px-2 py-1 text-sm rounded bg-navy text-paper">{t("保存")}</button>
                       <button onClick={() => setEditingId(null)} className="px-2 py-1 text-sm rounded border border-neutral-300">{t("取消")}</button>
                     </>
                   ) : (
@@ -146,7 +146,7 @@ export default function ResumeView({ onChanged }: Props) {
                   />
                 ) : (
                   tags.map((tg) => (
-                    <span key={tg} className="text-xs px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-600">{tg}</span>
+                    <span key={tg} className="text-xs px-2 py-0.5 border border-neutral-300 text-neutral-600">{tg}</span>
                   ))
                 )}
               </div>

@@ -1,1 +1,73 @@
 @import "tailwindcss";
+
+/*
+ * 杂志风主题：米白纸面 / 赭石 / 墨蓝，纯平涂，无渐变、无柔和阴影。
+ * 旧组件大量使用 neutral-*，这里把整条中性色阶换成「米白 → 墨黑」的暖色阶，
+ * 让它们自动跟随新配色；新写的界面直接用 paper / ink / navy / ochre。
+ */
+@theme {
+  --font-sans: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-serif: "Noto Serif SC Variable", "Noto Serif SC", "Source Han Serif SC", "Songti SC", "STSong", serif;
+  --font-display: "DM Serif Display", "Noto Serif SC Variable", serif;
+
+  --color-paper: #f9f5eb;
+  --color-card: #fffcf5;
+  --color-ink: #161616;
+  --color-navy: #22356f;
+  --color-navy-deep: #1b2b5c;
+  --color-navy-soft: #35487f;
+  --color-navy-tint: #e4e7f0;
+  --color-navy-muted: #b9c0d8;
+  --color-ochre: #c97b63;
+  --color-ochre-dark: #9e4f38;
+  --color-ochre-light: #e7a58e;
+  --color-ochre-tint: #f3e1da;
+
+  --color-white: #fffcf5;
+  --color-neutral-50: #f4efe3;
+  --color-neutral-100: #efe8d8;
+  --color-neutral-200: #e3dccb;
+  --color-neutral-300: #d8cfba;
+  --color-neutral-400: #736d61;
+  --color-neutral-500: #5c574d;
+  --color-neutral-600: #4a463e;
+  --color-neutral-700: #37342e;
+  --color-neutral-800: #26241f;
+  --color-neutral-900: #161616;
+
+  /* 错误 / 删除沿用赭石系，提示类用暗土黄，都不跳出这套配色 */
+  --color-red-50: #f6ebe5;
+  --color-red-100: #f3e1da;
+  --color-red-500: #b5553c;
+  --color-red-600: #9e4f38;
+  --color-red-700: #86402d;
+  --color-amber-100: #efe8d8;
+  --color-amber-400: #c97b63;
+  --color-amber-700: #7a5a2e;
+  --color-green-100: #e4e7f0;
+  --color-green-700: #22356f;
+
+  /* 按钮、输入框等控件一律直角；卡片与面板保留圆角 */
+  --radius: 0;
+  --radius-xs: 0;
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-2xl: 28px;
+
+  /* 平涂：去掉柔和投影，弹窗改用实色错位投影 */
+  --shadow-sm: none;
+  --shadow: none;
+  --shadow-xl: 8px 8px 0 0 #161616;
+}
+
+@layer base {
+  html,
+  body {
+    background-color: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+}

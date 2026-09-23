@@ -9,8 +9,8 @@ interface Props {
 
 const KIND_COLOR: Record<string, string> = {
   created: "bg-neutral-400",
-  stage: "bg-neutral-600",
-  status: "bg-amber-400",
+  stage: "bg-navy",
+  status: "bg-ochre",
   note: "bg-neutral-300",
 };
 
@@ -50,7 +50,7 @@ export default function ActivityTimeline({ applicationId }: Props) {
       {error && <div className="text-xs text-red-600 mb-2">{error}</div>}
       <div className="flex gap-2 mb-3">
         <input
-          className="flex-1 rounded-md border border-neutral-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-400 bg-white"
+          className="flex-1 rounded-md border border-neutral-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy bg-white"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") submit(); }}

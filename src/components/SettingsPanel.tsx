@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
-import { getSettings, saveSettings, listOllamaModels, checkOllama, exportBackup, importBackup } from "../api";
+import {
+  getSettings, saveSettings, listOllamaModels, checkOllama, exportBackup, importBackup,
+  getProtectSettings, saveProtectSettings, syncMirrorNow, getMirrorStatus, openTrashDir,
+} from "../api";
 import { open, message, confirm as askConfirm } from "@tauri-apps/plugin-dialog";
-import type { ExtractSettings, OllamaStatus } from "../types";
+import type { ExtractSettings, OllamaStatus, ProtectSettings, MirrorReport } from "../types";
+import { formatSize } from "../format";
 import { useI18n } from "../i18n";
 import { useModalFocus } from "../useModalFocus";
 
@@ -9,9 +13,9 @@ interface Props {
   onClose: () => void;
 }
 
-const field = "w-full rounded-md border border-neutral-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-400 bg-white";
+const field = "w-full rounded-md border border-neutral-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy bg-white";
 const label = "block text-xs font-medium text-neutral-500 mb-1";
-const section = "text-sm font-semibold text-neutral-700 mb-2";
+const section = "font-serif text-base font-black tracking-wide mb-3 pb-1.5 border-b-2 border-ink";
 
 const DEFAULT_SETTINGS: ExtractSettings = {
   fetchMode: "http",
@@ -27,6 +31,13 @@ const DEFAULT_SETTINGS: ExtractSettings = {
   proxy: "",
 };
 
+const DEFAULT_PROTECT: ProtectSettings = {
+  trashEnabled: true,
+  trashDays: 30,
+  mirrorEnabled: false,
+  mirrorDir: "",
+};
+
 export default function SettingsPanel({ onClose }: Props) {
   const { t } = useI18n();
   const modal = useModalFocus(onClose);
@@ -37,10 +48,18 @@ export default function SettingsPanel({ onClose }: Props) {
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [backingUp, setBackingUp] = useState(false);
   const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus | null>(null);
+  const [protect, setProtect] = useState<ProtectSettings>(DEFAULT_PROTECT);
+  const [mirrorStatus, setMirrorStatus] = useState<MirrorReport | null>(null);
+  const [syncing, setSyncing] = useState(false);
 
   useEffect(() => {
     getSettings().then(setS).catch((e) => setMsg(String(e)));
+    getProtectSettings().then(setProtect).catch((e) => setMsg(String(e)));
+    getMirrorStatus().then(setMirrorStatus).catch(() => setMirrorStatus(null));
   }, []);
+
+  const setP = <K extends keyof ProtectSettings>(key: K, value: ProtectSettings[K]) =>
+    setProtect((prev) => ({ ...prev, [key]: value }));
 
   useEffect(() => {
     if (s.provider === "ollama") {
@@ -57,6 +76,7 @@ export default function SettingsPanel({ onClose }: Props) {
     setMsg("");
     try {
       await saveSettings(s);
+      await saveProtectSettings(protect);
       setMsg(t("已保存"));
       setTimeout(onClose, 400);
     } catch (e) {
@@ -104,6 +124,23 @@ export default function SettingsPanel({ onClose }: Props) {
     finally { setBackingUp(false); }
   };
 
+  const handlePickMirror = async () => {
+    const dir = await open({ directory: true, multiple: false, title: t("选择备份位置") });
+    if (typeof dir === "string") setP("mirrorDir", dir);
+  };
+
+  // 「立即同步」先保存当前的数据保护设置，保证同步用的是界面上看到的位置
+  const handleSyncNow = async () => {
+    setSyncing(true); setMsg("");
+    try {
+      await saveProtectSettings(protect);
+      setMirrorStatus(await syncMirrorNow());
+    } catch (e) {
+      setMsg(String(e));
+      getMirrorStatus().then(setMirrorStatus).catch(() => {});
+    } finally { setSyncing(false); }
+  };
+
   const handleImportBackup = async () => {
     const source = await open({ directory: true, multiple: false, title: t("选择 OfferFlow 备份目录") });
     if (typeof source !== "string") return;
@@ -116,10 +153,10 @@ export default function SettingsPanel({ onClose }: Props) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-30 p-4">
-      <div ref={modal.ref} onKeyDown={modal.onKeyDown} role="dialog" aria-modal="true" aria-labelledby="settings-modal-title" tabIndex={-1} className="bg-white rounded-xl shadow-xl w-full max-w-xl max-h-[88vh] flex flex-col">
+    <div className="fixed inset-0 bg-ink/45 flex items-center justify-center z-30 p-4">
+      <div ref={modal.ref} onKeyDown={modal.onKeyDown} role="dialog" aria-modal="true" aria-labelledby="settings-modal-title" tabIndex={-1} className="bg-white rounded-2xl shadow-xl border-2 border-ink w-full max-w-xl max-h-[88vh] flex flex-col">
         <div className="flex items-center justify-between px-6 pt-5 pb-3 border-b border-neutral-200">
-          <h2 id="settings-modal-title" className="text-base font-semibold">{t("设置 · JD 快照与信息提取")}</h2>
+          <h2 id="settings-modal-title" className="font-serif text-xl font-black tracking-wide">{t("系统设置")}</h2>
           <button onClick={onClose} aria-label={t("关闭")} className="text-neutral-400 hover:text-neutral-600 text-xl leading-none">&times;</button>
         </div>
 
@@ -244,6 +281,62 @@ export default function SettingsPanel({ onClose }: Props) {
           </div>
 
           <div>
+            <div className={section}>{t("数据保护")}</div>
+            <div className="space-y-4">
+              <div>
+                <label className="flex items-center gap-2 text-sm font-medium">
+                  <input type="checkbox" checked={protect.trashEnabled} onChange={(e) => setP("trashEnabled", e.target.checked)} />
+                  {t("删除的文件先放进回收站")}
+                </label>
+                <p className="text-xs text-neutral-500 mt-1 ml-6">
+                  {t("删除投递、面试、附件或简历时，录音等文件先移到回收站，到期后自动清理。期间可以打开回收站手动找回。")}
+                </p>
+                <div className="flex items-center gap-2 mt-2 ml-6 text-sm">
+                  <input
+                    type="number" min={1} max={365}
+                    aria-label={t("回收站保留天数")}
+                    className="w-20 border border-neutral-300 px-2 py-1 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-navy disabled:opacity-50"
+                    value={protect.trashDays}
+                    disabled={!protect.trashEnabled}
+                    onChange={(e) => setP("trashDays", Number(e.target.value))}
+                  />
+                  <span className="text-neutral-600">{t("天后自动清理")}</span>
+                  <button type="button" onClick={() => openTrashDir().catch((e) => setMsg(String(e)))} className="ml-auto px-3 py-1.5 text-sm border border-neutral-300 hover:bg-neutral-50">{t("打开回收站")}</button>
+                </div>
+              </div>
+
+              <div>
+                <label className="flex items-center gap-2 text-sm font-medium">
+                  <input type="checkbox" checked={protect.mirrorEnabled} onChange={(e) => setP("mirrorEnabled", e.target.checked)} />
+                  {t("每次启动时自动同步到备份位置")}
+                </label>
+                <p className="text-xs text-neutral-500 mt-1 ml-6">
+                  {t("把新增的录音、简历、JD 快照和最新数据库同步到另一块硬盘或网盘同步文件夹。只复制新增文件，本地删除不会影响备份；数据库另按天保留最近 14 份。需要时用「从备份恢复」选择其中的 OfferFlow-Mirror 文件夹即可还原。")}
+                </p>
+                <div className="flex gap-2 mt-2 ml-6">
+                  <input className={field} readOnly value={protect.mirrorDir} placeholder={t("尚未选择备份位置")} aria-label={t("备份位置")} />
+                  <button type="button" onClick={handlePickMirror} className="px-3 py-1.5 text-sm border border-neutral-300 hover:bg-neutral-50 whitespace-nowrap">{t("选择位置")}</button>
+                  <button type="button" onClick={handleSyncNow} disabled={syncing || !protect.mirrorDir} className="px-3 py-1.5 text-sm border border-neutral-300 hover:bg-neutral-50 disabled:opacity-50 whitespace-nowrap">
+                    {syncing ? t("同步中…") : t("立即同步")}
+                  </button>
+                </div>
+                {mirrorStatus && (
+                  <p className={"text-xs mt-1.5 ml-6 " + (mirrorStatus.error ? "text-red-700" : "text-neutral-500")}>
+                    {mirrorStatus.error
+                      ? t("上次同步失败（{time}）：{error}", { time: mirrorStatus.finishedAt, error: mirrorStatus.error })
+                      : t("上次同步：{time}，新增 {n} 个文件（{size}），{same} 个已存在", {
+                        time: mirrorStatus.finishedAt,
+                        n: mirrorStatus.copiedFiles,
+                        size: formatSize(mirrorStatus.copiedBytes),
+                        same: mirrorStatus.unchangedFiles,
+                      })}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div>
             <div className={section}>{t("备份与恢复")}</div>
             <p className="text-xs text-neutral-500 mb-2">{t("备份包含业务数据、简历、附件和 JD 快照，不包含 Cookie 与 API Key。")}</p>
             <div className="flex gap-2">
@@ -255,7 +348,7 @@ export default function SettingsPanel({ onClose }: Props) {
 
         <div className="flex justify-end gap-2 px-6 py-4 border-t border-neutral-200">
           <button onClick={onClose} className="px-3 py-1.5 text-sm rounded-md border border-neutral-300 hover:bg-neutral-50">{t("取消")}</button>
-          <button onClick={handleSave} disabled={saving} className="px-3 py-1.5 text-sm rounded-md bg-neutral-900 text-white hover:bg-neutral-800 disabled:opacity-50">
+          <button onClick={handleSave} disabled={saving} className="px-3 py-1.5 text-sm rounded-md bg-navy text-paper hover:bg-navy-deep disabled:opacity-50">
             {saving ? t("保存中…") : t("保存")}
           </button>
         </div>

@@ -22,7 +22,7 @@ interface Props {
   onOpenInterview?: (app: Application) => void;
 }
 
-const field = "w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-400 bg-white";
+const field = "w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy bg-white";
 const label = "block text-xs font-medium text-neutral-500 mb-1";
 
 const today = () => {
@@ -211,9 +211,9 @@ export default function ApplicationModal({ state, stages, companies, jobs, onClo
 
   return (
     <>
-      <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-20 p-4">
-        <div ref={modal.ref} onKeyDown={modal.onKeyDown} role="dialog" aria-modal="true" aria-labelledby="application-modal-title" tabIndex={-1} className="bg-white rounded-xl shadow-xl w-full max-w-xl max-h-[90vh] overflow-y-auto p-6">
-          <h2 id="application-modal-title" className="text-lg font-semibold mb-4">{state.mode === "edit" ? t("编辑投递") : t("新建投递")}</h2>
+      <div className="fixed inset-0 bg-ink/45 flex items-center justify-center z-20 p-4">
+        <div ref={modal.ref} onKeyDown={modal.onKeyDown} role="dialog" aria-modal="true" aria-labelledby="application-modal-title" tabIndex={-1} className="bg-white rounded-2xl shadow-xl border-2 border-ink w-full max-w-xl max-h-[90vh] overflow-y-auto p-6">
+          <h2 id="application-modal-title" className="font-serif text-xl font-black tracking-wide mb-4">{state.mode === "edit" ? t("编辑投递") : t("新建投递")}</h2>
 
           {state.mode === "create" && (
             <div className="mb-4">
@@ -350,7 +350,7 @@ export default function ApplicationModal({ state, stages, companies, jobs, onClo
               <button
                 onClick={handleSubmit}
                 disabled={saving}
-                className="px-4 py-2 text-sm rounded-md bg-neutral-900 text-white hover:bg-neutral-800 disabled:opacity-50"
+                className="px-4 py-2 text-sm rounded-md bg-navy text-paper hover:bg-navy-deep disabled:opacity-50"
               >
                 {saving ? t("保存中…") : t("保存")}
               </button>

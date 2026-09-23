@@ -36,7 +36,7 @@ type Mode = "url" | "file" | "paste";
 type Status = { tone: "ok" | "warn"; text: string } | null;
 
 const field =
-  "w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-400 bg-white";
+  "w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy bg-white";
 
 const text = (v: string | null | undefined) => (v ?? "").trim();
 const num = (v: number | null | undefined) => (v == null ? "" : String(v));
@@ -197,7 +197,7 @@ export default function SnapshotCapture({ onCaptured, onExtracted, skipExtractio
       onClick={() => { setMode(m); setError(""); }}
       className={
         "px-3 py-1 text-xs rounded-md " +
-        (mode === m ? "bg-neutral-900 text-white" : "text-neutral-600 hover:bg-neutral-100")
+        (mode === m ? "bg-navy text-paper" : "text-neutral-600 hover:bg-neutral-100")
       }
     >
       {label}
@@ -205,7 +205,7 @@ export default function SnapshotCapture({ onCaptured, onExtracted, skipExtractio
   );
 
   const actionBtn =
-    "px-4 py-2 text-sm rounded-md bg-neutral-700 text-white hover:bg-neutral-800 disabled:opacity-50 whitespace-nowrap";
+    "px-4 py-2 text-sm rounded-md bg-navy text-paper hover:bg-navy-deep disabled:opacity-50 whitespace-nowrap";
 
   return (
     <div className="space-y-2">

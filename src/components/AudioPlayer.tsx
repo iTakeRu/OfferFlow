@@ -39,9 +39,9 @@ export default function AudioPlayer({ attachment, marks, onMarksChanged, intervi
     const ws = WaveSurfer.create({
       container,
       url: convertFileSrc(attachment.filepath),
-      waveColor: "#d4d4d4",
-      progressColor: "#404040",
-      cursorColor: "#f59e0b",
+      waveColor: "#d8cfba",
+      progressColor: "#22356f",
+      cursorColor: "#c97b63",
       height: 72,
       normalize: true,
     });
@@ -142,7 +142,7 @@ export default function AudioPlayer({ attachment, marks, onMarksChanged, intervi
         <button
           onClick={togglePlay}
           disabled={!ready}
-          className="px-3 py-1.5 text-xs rounded-md bg-neutral-900 text-white hover:bg-neutral-800 disabled:opacity-40"
+          className="px-3 py-1.5 text-xs rounded-md bg-navy text-paper hover:bg-navy-deep disabled:opacity-40"
         >
           {playing ? t("暂停") : t("播放")}
         </button>
@@ -153,13 +153,13 @@ export default function AudioPlayer({ attachment, marks, onMarksChanged, intervi
 
       <div className="mt-3 grid grid-cols-1 md:grid-cols-[1fr_2fr_auto] gap-2 items-start">
         <input
-          className="rounded-md border border-neutral-300 px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-neutral-400 bg-white"
+          className="rounded-md border border-neutral-300 px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-navy bg-white"
           placeholder={t("打点标签")}
           value={label}
           onChange={(e) => setLabel(e.target.value)}
         />
         <input
-          className="rounded-md border border-neutral-300 px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-neutral-400 bg-white"
+          className="rounded-md border border-neutral-300 px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-navy bg-white"
           placeholder={t("备注（可选）")}
           value={note}
           onChange={(e) => setNote(e.target.value)}

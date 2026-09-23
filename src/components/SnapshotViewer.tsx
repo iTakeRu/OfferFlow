@@ -95,7 +95,7 @@ export default function SnapshotViewer({ jobId, jobTitle, companyName, onClose }
     });
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-40 p-4">
+    <div className="fixed inset-0 bg-ink/45 flex items-center justify-center z-40 p-4">
       <div
         ref={modal.ref}
         onKeyDown={modal.onKeyDown}
@@ -103,18 +103,18 @@ export default function SnapshotViewer({ jobId, jobTitle, companyName, onClose }
         aria-modal="true"
         aria-labelledby="snapshot-viewer-title"
         tabIndex={-1}
-        className="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[88vh] flex flex-col"
+        className="bg-white rounded-2xl shadow-xl border-2 border-ink w-full max-w-3xl max-h-[88vh] flex flex-col"
       >
         <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-200">
           <div className="min-w-0">
-            <h2 id="snapshot-viewer-title" className="text-base font-semibold">{t("JD 快照")}</h2>
+            <h2 id="snapshot-viewer-title" className="font-serif text-xl font-black tracking-wide">{t("JD 快照")}</h2>
             <p className="text-sm text-neutral-500 truncate">{companyName || t("未知公司")} · {jobTitle || t("未知岗位")}</p>
           </div>
           <div className="flex gap-2 shrink-0">
             {!adding && (
               <button
                 onClick={() => setAdding(true)}
-                className="px-3 py-1.5 text-sm rounded-md bg-neutral-900 text-white hover:bg-neutral-800"
+                className="px-3 py-1.5 text-sm rounded-md bg-navy text-paper hover:bg-navy-deep"
               >
                 {t("+ 新增快照")}
               </button>
@@ -148,7 +148,7 @@ export default function SnapshotViewer({ jobId, jobTitle, companyName, onClose }
                     <button
                       onClick={saveDraft}
                       disabled={saving}
-                      className="px-3 py-1.5 text-sm rounded-md bg-neutral-900 text-white hover:bg-neutral-800 disabled:opacity-50"
+                      className="px-3 py-1.5 text-sm rounded-md bg-navy text-paper hover:bg-navy-deep disabled:opacity-50"
                     >
                       {saving ? t("保存中…") : t("保存快照")}
                     </button>

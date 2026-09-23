@@ -20,7 +20,7 @@ interface Props {
   onChanged: () => void;
 }
 
-const field = "w-full rounded-md border border-neutral-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-400 bg-white";
+const field = "w-full rounded-md border border-neutral-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy bg-white";
 const btn = "px-3 py-1.5 text-sm rounded-md";
 const label = "block text-xs font-medium text-neutral-500 mb-1";
 const danger = "text-red-500 hover:text-red-600 text-sm";
@@ -217,8 +217,8 @@ export default function ManagementPanel({ stages, companies, jobs, onClose, onCh
 
   return (
     <>
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-20 p-4">
-      <div ref={modal.ref} onKeyDown={modal.onKeyDown} role="dialog" aria-modal="true" aria-label={t("公司、岗位与阶段管理")} tabIndex={-1} className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+    <div className="fixed inset-0 bg-ink/45 flex items-center justify-center z-20 p-4">
+      <div ref={modal.ref} onKeyDown={modal.onKeyDown} role="dialog" aria-modal="true" aria-label={t("公司、岗位与阶段管理")} tabIndex={-1} className="bg-white rounded-2xl shadow-xl border-2 border-ink w-full max-w-2xl max-h-[85vh] flex flex-col">
         <div className="flex items-center justify-between px-6 pt-5 pb-3 border-b border-neutral-200">
           <div className="flex gap-2">
             {tabs.map((tb) => (
@@ -226,7 +226,7 @@ export default function ManagementPanel({ stages, companies, jobs, onClose, onCh
                 key={tb.key}
                 onClick={() => setTab(tb.key)}
                 className={`px-3 py-1.5 text-sm rounded-md ${
-                  tab === tb.key ? "bg-neutral-900 text-white" : "bg-neutral-100 hover:bg-neutral-200"
+                  tab === tb.key ? "bg-navy text-paper" : "bg-neutral-100 hover:bg-neutral-200"
                 }`}
               >
                 {tb.label}
@@ -243,7 +243,7 @@ export default function ManagementPanel({ stages, companies, jobs, onClose, onCh
             <div className="space-y-3">
               <div className="flex gap-2">
                 <input className={field} value={newStage} onChange={(e) => setNewStage(e.target.value)} placeholder={t("新增阶段名称")} onKeyDown={(e) => e.key === "Enter" && addStage()} />
-                <button onClick={addStage} className={`${btn} bg-neutral-900 text-white hover:bg-neutral-800`}>{t("添加")}</button>
+                <button onClick={addStage} className={`${btn} bg-navy text-paper hover:bg-navy-deep`}>{t("添加")}</button>
               </div>
               <ul className="divide-y divide-neutral-100">
                 {stages.map((s, idx) => (
@@ -251,7 +251,7 @@ export default function ManagementPanel({ stages, companies, jobs, onClose, onCh
                     {editingStageId === s.id ? (
                       <div className="flex-1 flex gap-2">
                         <input className={field} value={editingStageName} onChange={(e) => setEditingStageName(e.target.value)} />
-                        <button onClick={() => saveStage(s.id)} className={`${btn} bg-neutral-900 text-white`}>{t("保存")}</button>
+                        <button onClick={() => saveStage(s.id)} className={`${btn} bg-navy text-paper`}>{t("保存")}</button>
                       </div>
                     ) : (
                       <span className="text-sm">{t(s.name)}</span>
@@ -281,7 +281,7 @@ export default function ManagementPanel({ stages, companies, jobs, onClose, onCh
                 <input className={field} value={cCity} onChange={(e) => setCCity(e.target.value)} placeholder={t("城市（可选）")} />
               </div>
               <div className="flex justify-end">
-                <button onClick={addCompany} className={`${btn} bg-neutral-900 text-white hover:bg-neutral-800`}>{t("添加公司")}</button>
+                <button onClick={addCompany} className={`${btn} bg-navy text-paper hover:bg-navy-deep`}>{t("添加公司")}</button>
               </div>
               <ul className="divide-y divide-neutral-100">
                 {companies.map((c) => (
@@ -294,7 +294,7 @@ export default function ManagementPanel({ stages, companies, jobs, onClose, onCh
                           <input className={field} value={companyDraft.city} onChange={(e) => setCompanyDraft((d) => ({ ...d, city: e.target.value }))} placeholder={t("城市（可选）")} />
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
-                          <button className={`${btn} bg-neutral-900 text-white`} onClick={() => saveCompany(c)}>{t("保存")}</button>
+                          <button className={`${btn} bg-navy text-paper`} onClick={() => saveCompany(c)}>{t("保存")}</button>
                           <button className={`${btn} border border-neutral-300`} onClick={() => setEditingCompanyId(null)}>{t("取消")}</button>
                         </div>
                       </>
@@ -367,7 +367,7 @@ export default function ManagementPanel({ stages, companies, jobs, onClose, onCh
               </div>
 
               <div className="flex justify-end">
-                <button onClick={addJob} className={`${btn} bg-neutral-900 text-white hover:bg-neutral-800`}>{t("添加岗位")}</button>
+                <button onClick={addJob} className={`${btn} bg-navy text-paper hover:bg-navy-deep`}>{t("添加岗位")}</button>
               </div>
 
               <div>
@@ -387,7 +387,7 @@ export default function ManagementPanel({ stages, companies, jobs, onClose, onCh
                             </select>
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
-                            <button className={`${btn} bg-neutral-900 text-white`} onClick={() => saveJob(j)}>{t("保存")}</button>
+                            <button className={`${btn} bg-navy text-paper`} onClick={() => saveJob(j)}>{t("保存")}</button>
                             <button className={`${btn} border border-neutral-300`} onClick={() => setEditingJobId(null)}>{t("取消")}</button>
                           </div>
                         </>

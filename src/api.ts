@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   Company, Job, Stage, Application, Interview, Attachment, AudioMark,
   ExtractSettings, ExtractedJob, OllamaStatus, Resume, UpcomingInterview, ActivityLog, ReviewNote,
-  SnapshotDraft, JobSnapshot,
+  SnapshotDraft, JobSnapshot, ProtectSettings, MirrorReport,
 } from "./types";
 
 // ---------- Stage ----------
@@ -141,6 +141,13 @@ export const listUpcomingInterviews = (days: number) =>
 // ---------- Backup ----------
 export const exportBackup = (targetDir: string) => invoke<string>("export_backup", { targetDir });
 export const importBackup = (sourceDir: string) => invoke<string>("import_backup", { sourceDir });
+
+// ---------- 数据保护 ----------
+export const getProtectSettings = () => invoke<ProtectSettings>("get_protect_settings");
+export const saveProtectSettings = (settings: ProtectSettings) => invoke<void>("set_protect_settings", { settings });
+export const syncMirrorNow = () => invoke<MirrorReport>("sync_mirror_now");
+export const getMirrorStatus = () => invoke<MirrorReport | null>("get_mirror_status");
+export const openTrashDir = () => invoke<void>("open_trash_dir");
 
 // ---------- Activity log ----------
 export const listActivities = (applicationId: number) =>

@@ -90,6 +90,23 @@ export interface ExtractSettings {
   proxy: string;
 }
 
+/** 数据保护：回收站 + 镜像备份，两项都可单独开关。 */
+export interface ProtectSettings {
+  trashEnabled: boolean;
+  trashDays: number;
+  mirrorEnabled: boolean;
+  mirrorDir: string;
+}
+
+export interface MirrorReport {
+  finishedAt: string;
+  target: string;
+  copiedFiles: number;
+  copiedBytes: number;
+  unchangedFiles: number;
+  error: string | null;
+}
+
 export interface OllamaStatus {
   installed: boolean;
   running: boolean;
