@@ -16,7 +16,7 @@ const section = "text-sm font-semibold text-neutral-700 mb-2";
 const DEFAULT_SETTINGS: ExtractSettings = {
   fetchMode: "http",
   cookie: "",
-  cookieDomain: "mokahr.com",
+  cookieDomain: "",
   browserPath: "",
   provider: "none",
   ollamaUrl: "http://localhost:11434",
@@ -119,7 +119,7 @@ export default function SettingsPanel({ onClose }: Props) {
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-30 p-4">
       <div ref={modal.ref} onKeyDown={modal.onKeyDown} role="dialog" aria-modal="true" aria-labelledby="settings-modal-title" tabIndex={-1} className="bg-white rounded-xl shadow-xl w-full max-w-xl max-h-[88vh] flex flex-col">
         <div className="flex items-center justify-between px-6 pt-5 pb-3 border-b border-neutral-200">
-          <h2 id="settings-modal-title" className="text-base font-semibold">{t("设置 · 抓取与信息提取")}</h2>
+          <h2 id="settings-modal-title" className="text-base font-semibold">{t("设置 · JD 快照与信息提取")}</h2>
           <button onClick={onClose} aria-label={t("关闭")} className="text-neutral-400 hover:text-neutral-600 text-xl leading-none">&times;</button>
         </div>
 
@@ -128,7 +128,10 @@ export default function SettingsPanel({ onClose }: Props) {
 
           {/* 抓取 */}
           <div>
-            <div className={section}>{t("岗位 URL 抓取")}</div>
+            <div className={section}>{t("JD 快照抓取")}</div>
+            <p className="text-xs text-neutral-500 mb-2">
+              {t("粘贴岗位链接时按下面的方式访问页面并存档。打不开或需要登录的页面，可以在浏览器里「另存为」网页后导入文件，或直接粘贴文本。")}
+            </p>
             <div className="space-y-2">
               <div>
                 <div className={label}>{t("抓取方式")}</div>
@@ -149,7 +152,7 @@ export default function SettingsPanel({ onClose }: Props) {
                 <div className={label}>{t("Cookie（登录态注入，可选）")}</div>
                 <textarea className={field} rows={2} value={s.cookie} onChange={(e) => set("cookie", e.target.value)} placeholder="key1=value1; key2=value2" />
                 <div className={`${label} mt-2`}>{t("Cookie 仅发送到此域名及其子域名")}</div>
-                <input className={field} value={s.cookieDomain} onChange={(e) => set("cookieDomain", e.target.value)} placeholder="mokahr.com" />
+                <input className={field} value={s.cookieDomain} onChange={(e) => set("cookieDomain", e.target.value)} placeholder="example.com" />
               </div>
 
               <div>
@@ -161,14 +164,17 @@ export default function SettingsPanel({ onClose }: Props) {
 
           {/* 模型 */}
           <div>
-            <div className={section}>{t("信息提取模型")}</div>
+            <div className={section}>{t("AI 信息提取（可选）")}</div>
+            <p className="text-xs text-neutral-500 mb-2">
+              {t("抓取快照不会自动调用 AI。页面带有结构化岗位数据时会直接识别；识别不到时，启用后会出现「用 AI 提取」按钮，由你决定是否使用。")}
+            </p>
             <div className="space-y-2">
               <div>
-                <div className={label}>{t("模型提供商")}</div>
+                <div className={label}>{t("提取方式")}</div>
                 <select className={field} value={s.provider} onChange={(e) => set("provider", e.target.value)}>
-                  <option value="none">{t("不启用（纯手动录入）")}</option>
-                  <option value="ollama">{t("Ollama（本地离线 / 服务）")}</option>
-                  <option value="openai">{t("OpenAI 兼容接口")}</option>
+                  <option value="none">{t("不启用（保存快照，手动填写）")}</option>
+                  <option value="ollama">{t("Ollama（本地模型，数据不出本机）")}</option>
+                  <option value="openai">{t("API 调用（OpenAI 兼容接口）")}</option>
                 </select>
               </div>
 
@@ -216,9 +222,13 @@ export default function SettingsPanel({ onClose }: Props) {
 
               {s.provider === "openai" && (
                 <>
+                  <p className="text-xs text-amber-700">
+                    {t("使用时快照正文会发送到下面的接口，每次发送前都会先征求你的确认。")}
+                  </p>
                   <div>
                     <div className={label}>{t("接口地址")}</div>
-                    <input className={field} value={s.openaiUrl} onChange={(e) => set("openaiUrl", e.target.value)} />
+                    <input className={field} value={s.openaiUrl} onChange={(e) => set("openaiUrl", e.target.value)} placeholder="https://api.openai.com/v1" />
+                    <p className="mt-1 text-xs text-neutral-400">{t("任何兼容 OpenAI Chat Completions 的服务均可，如 DeepSeek、通义千问、Moonshot 等；远程地址必须使用 HTTPS")}</p>
                   </div>
                   <div>
                     <div className={label}>API Key</div>
@@ -226,7 +236,7 @@ export default function SettingsPanel({ onClose }: Props) {
                   </div>
                   <div>
                     <div className={label}>{t("模型名")}</div>
-                    <input className={field} value={s.openaiModel} onChange={(e) => set("openaiModel", e.target.value)} />
+                    <input className={field} value={s.openaiModel} onChange={(e) => set("openaiModel", e.target.value)} placeholder="gpt-4o-mini" />
                   </div>
                 </>
               )}
@@ -235,7 +245,7 @@ export default function SettingsPanel({ onClose }: Props) {
 
           <div>
             <div className={section}>{t("备份与恢复")}</div>
-            <p className="text-xs text-neutral-500 mb-2">{t("备份包含业务数据、简历和附件，不包含 Cookie 与 API Key。")}</p>
+            <p className="text-xs text-neutral-500 mb-2">{t("备份包含业务数据、简历、附件和 JD 快照，不包含 Cookie 与 API Key。")}</p>
             <div className="flex gap-2">
               <button onClick={handleExportBackup} disabled={backingUp} className="px-3 py-1.5 text-sm rounded-md border border-neutral-300 hover:bg-neutral-50 disabled:opacity-50">{t("导出完整备份")}</button>
               <button onClick={handleImportBackup} disabled={backingUp} className="px-3 py-1.5 text-sm rounded-md border border-neutral-300 text-red-700 hover:bg-red-50 disabled:opacity-50">{t("从备份恢复")}</button>

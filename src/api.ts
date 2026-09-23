@@ -1,7 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   Company, Job, Stage, Application, Interview, Attachment, AudioMark,
-  ExtractSettings, ExtractedJob, JobDetail, OllamaStatus, Resume, UpcomingInterview, ActivityLog, ReviewNote,
+  ExtractSettings, ExtractedJob, OllamaStatus, Resume, UpcomingInterview, ActivityLog, ReviewNote,
+  SnapshotDraft, JobSnapshot,
 } from "./types";
 
 // ---------- Stage ----------
@@ -102,14 +103,28 @@ export const exportExcel = (path: string) => invoke<void>("export_excel", { path
 // ---------- Extract / Fetch ----------
 export const getSettings = () => invoke<ExtractSettings>("get_settings");
 export const saveSettings = (settings: ExtractSettings) => invoke<void>("set_settings", { settings });
-export const fetchJdText = (url: string) => invoke<string>("fetch_jd_text", { url });
 export const extractJdInfo = (content: string) => invoke<ExtractedJob>("extract_jd_info", { content });
 export const listOllamaModels = () => invoke<string[]>("list_ollama_models");
 export const checkOllama = () => invoke<OllamaStatus>("check_ollama");
-// 统一链接解析入口：自动识别 MokaHR / Lever / Greenhouse 等平台
-export const fetchJobDetail = (url: string) => invoke<JobDetail>("fetch_job_detail", { url });
-/** 支持结构化解析的站点，唯一来源在后端。 */
-export const supportedJobHosts = () => invoke<string[]>("supported_job_hosts");
+// ---------- JD 快照 ----------
+// 抓取只返回草稿（原始页面暂存在 pending 目录），用户确认后再 saveJobSnapshot 入库。
+export const captureSnapshotFromUrl = (url: string) =>
+  invoke<SnapshotDraft>("capture_snapshot_from_url", { url });
+export const captureSnapshotFromFile = (path: string) =>
+  invoke<SnapshotDraft>("capture_snapshot_from_file", { path });
+export const discardSnapshotDraft = (token: string) =>
+  invoke<void>("discard_snapshot_draft", { token });
+export const saveJobSnapshot = (jobId: number, d: SnapshotDraft) =>
+  invoke<JobSnapshot>("save_job_snapshot", {
+    jobId,
+    sourceUrl: d.sourceUrl,
+    sourceKind: d.sourceKind,
+    text: d.text,
+    token: d.token,
+  });
+export const listJobSnapshots = (jobId: number) =>
+  invoke<JobSnapshot[]>("list_job_snapshots", { jobId });
+export const deleteJobSnapshot = (id: number) => invoke<void>("delete_job_snapshot", { id });
 
 // ---------- Resume ----------
 export const listResumes = () => invoke<Resume[]>("list_resumes");

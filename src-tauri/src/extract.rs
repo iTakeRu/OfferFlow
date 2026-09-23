@@ -24,7 +24,7 @@ impl Default for Settings {
         Settings {
             fetch_mode: "http".to_string(),
             cookie: String::new(),
-            cookie_domain: "mokahr.com".to_string(),
+            cookie_domain: String::new(),
             browser_path: String::new(),
             provider: "none".to_string(),
             ollama_url: "http://localhost:11434".to_string(),
@@ -423,7 +423,8 @@ fn fetch_via_browser(browser: &PathBuf, url: &str) -> Result<String, String> {
     if out.stdout.len() > 5 * 1024 * 1024 {
         return Err("浏览器抓取结果超过 5 MB 限制".to_string());
     }
-    Ok(html_to_text(&String::from_utf8_lossy(&out.stdout)))
+    // --dump-dom 输出的是渲染后的 DOM，Chromium 统一按 UTF-8 输出。
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 const MAX_REDIRECTS: u32 = 5;
@@ -459,7 +460,7 @@ fn build_local_agent() -> ureq::Agent {
     agent_builder().redirects(MAX_REDIRECTS).build()
 }
 
-fn url_host(url: &str) -> Result<String, String> {
+pub(crate) fn url_host(url: &str) -> Result<String, String> {
     let trimmed = url.trim();
     let rest = trimmed
         .strip_prefix("https://")
@@ -534,7 +535,7 @@ fn encoding_from_label(label: &str) -> Option<&'static encoding_rs::Encoding> {
 
 /// 按 Content-Type、`<meta charset>` 解码响应体。中文招聘站点仍有 GBK 页面，
 /// 直接要求 UTF-8 会让整次抓取失败。
-fn decode_body(bytes: &[u8], content_type: Option<&str>) -> String {
+pub(crate) fn decode_body(bytes: &[u8], content_type: Option<&str>) -> String {
     if let Some(enc) = content_type
         .and_then(charset_label)
         .as_deref()
@@ -595,7 +596,7 @@ fn join_url(base: &str, location: &str) -> Result<String, String> {
 
 /// 抓取页面并逐跳跟随重定向；每一跳都重新过一次地址校验。
 /// Cookie 只在目标域名匹配设置时注入，重定向到别的域名后自然不会再带上。
-fn get_page(agent: &ureq::Agent, url: &str, s: &Settings) -> Result<String, String> {
+fn get_page(agent: &ureq::Agent, url: &str, s: &Settings) -> Result<(String, String), String> {
     let mut current = url.trim().to_string();
     for _ in 0..=MAX_REDIRECTS {
         let host = validate_job_url(&current)?;
@@ -614,7 +615,7 @@ fn get_page(agent: &ureq::Agent, url: &str, s: &Settings) -> Result<String, Stri
                     .to_string();
                 current = join_url(&current, &location)?;
             }
-            Ok(resp) => return response_text(resp),
+            Ok(resp) => return Ok((current, response_text(resp)?)),
             Err(ureq::Error::Status(code, resp)) => return Err(status_error(code, resp)),
             Err(e) => return Err(e.to_string()),
         }
@@ -622,9 +623,26 @@ fn get_page(agent: &ureq::Agent, url: &str, s: &Settings) -> Result<String, Stri
     Err(format!("重定向超过 {MAX_REDIRECTS} 次，已停止抓取"))
 }
 
-fn fetch_via_http(url: &str, s: &Settings) -> Result<String, String> {
+/// 按设置里的抓取方式取回页面原始 HTML，返回 (最终地址, HTML)。
+/// 这里只做普通的页面访问：不调用站点私有接口、不做任何解密。
+pub(crate) fn fetch_page_html(url: &str) -> Result<(String, String), String> {
+    let s = load_settings();
+    let url = url.trim();
+    validate_job_url(url)?;
+    if s.fetch_mode == "browser" {
+        // 用户特意选了浏览器模式通常正是因为 HTTP 抓不到，
+        // 这里把真实错误抛出去，不要静默回落到 HTTP 让人对着无关报错排查。
+        return match find_browser(&s.browser_path) {
+            Some(browser) => fetch_via_browser(&browser, url)
+                .map(|html| (url.to_string(), html))
+                .map_err(|e| format!("无头浏览器抓取失败：{e}")),
+            None => {
+                Err("未找到 Edge / Chrome，请在设置中指定浏览器路径，或改用 HTTP 抓取".to_string())
+            }
+        };
+    }
     let agent = build_fetch_agent(&s.proxy)?;
-    Ok(html_to_text(&get_page(&agent, url, s)?))
+    get_page(&agent, url, &s)
 }
 
 // ---------- Model calls ----------
@@ -684,7 +702,7 @@ fn extract_jd_impl(s: &Settings, content: &str) -> Result<ExtractedJob, String> 
     let raw = match s.provider.as_str() {
         "ollama" => ollama_generate(s, &prompt)?,
         "openai" => openai_chat(s, &prompt)?,
-        _ => return Err("请先在「设置」中选择提取模型提供商".to_string()),
+        _ => return Err("未启用 AI 提取，可在「系统设置」中配置 Ollama 或 API".to_string()),
     };
     let raw = raw
         .trim()
@@ -726,12 +744,12 @@ fn list_ollama_models_impl(s: &Settings) -> Result<Vec<String>, String> {
 }
 
 // ---------- Tauri commands ----------
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_settings() -> Settings {
     load_settings()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn set_settings(settings: Settings) -> Result<(), String> {
     if !["none", "ollama", "openai"].contains(&settings.provider.as_str()) {
         return Err("模型提供商无效".to_string());
@@ -793,26 +811,7 @@ pub fn set_settings(settings: Settings) -> Result<(), String> {
     save_settings_file(&settings)
 }
 
-#[tauri::command]
-pub fn fetch_jd_text(url: String) -> Result<String, String> {
-    let s = load_settings();
-    validate_job_url(&url)?;
-    if s.fetch_mode == "browser" {
-        // 用户特意选了浏览器模式通常正是因为 HTTP 抓不到，
-        // 这里把真实错误抛出去，不要静默回落到 HTTP 让人对着无关报错排查。
-        return match find_browser(&s.browser_path) {
-            Some(browser) => {
-                fetch_via_browser(&browser, &url).map_err(|e| format!("无头浏览器抓取失败：{e}"))
-            }
-            None => {
-                Err("未找到 Edge / Chrome，请在设置中指定浏览器路径，或改用 HTTP 抓取".to_string())
-            }
-        };
-    }
-    fetch_via_http(&url, &s)
-}
-
-#[tauri::command]
+#[tauri::command(async)]
 pub fn extract_jd_info(content: String) -> Result<ExtractedJob, String> {
     if content.len() > 500_000 {
         return Err("JD 内容过长".to_string());
@@ -821,7 +820,7 @@ pub fn extract_jd_info(content: String) -> Result<ExtractedJob, String> {
     extract_jd_impl(&s, &content)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_ollama_models() -> Result<Vec<String>, String> {
     let s = load_settings();
     list_ollama_models_impl(&s)
@@ -835,32 +834,39 @@ pub struct OllamaStatus {
     pub url: String,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn check_ollama() -> OllamaStatus {
     let s = load_settings();
     let base = s.ollama_url.trim_end_matches('/');
-    let running = build_local_agent()
-        .get(&format!("{base}/"))
+    // 只是探测服务在不在，连接超时要短：Windows 上连一个没人监听的回环端口，
+    // 系统会重发 SYN，约 2 秒后才返回「拒绝连接」。
+    let running = agent_builder()
+        .timeout_connect(std::time::Duration::from_millis(500))
         .timeout(std::time::Duration::from_secs(2))
+        .build()
+        .get(&format!("{base}/"))
         .call()
         .map(|r| r.status() == 200)
         .unwrap_or(false);
     OllamaStatus {
-        installed: ollama_installed(),
+        installed: running || ollama_installed(),
         running,
         url: s.ollama_url.clone(),
     }
 }
 
+/// 直接扫 PATH 找可执行文件。以前是起 `where` / `which` 子进程：
+/// 慢，而且 GUI 程序启动控制台子进程会闪出一个黑窗口。
 fn command_in_path(cmd: &str) -> bool {
-    for tool in ["where", "which"] {
-        if let Ok(o) = std::process::Command::new(tool).arg(cmd).output() {
-            if o.status.success() {
-                return true;
-            }
-        }
-    }
-    false
+    let Some(paths) = std::env::var_os("PATH") else {
+        return false;
+    };
+    let file = if cfg!(windows) {
+        format!("{cmd}.exe")
+    } else {
+        cmd.to_string()
+    };
+    std::env::split_paths(&paths).any(|dir| dir.join(&file).is_file())
 }
 
 fn ollama_installed() -> bool {
@@ -877,7 +883,8 @@ fn ollama_installed() -> bool {
     }
     candidates.iter().any(|p| p.exists())
 }
-#[derive(Serialize, Deserialize)]
+/// 从页面结构化数据里识别出的岗位字段。
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct JobDetail {
     pub title: String,
@@ -893,204 +900,10 @@ pub struct JobDetail {
 const USER_AGENT: &str =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
 
-fn fixed_16(s: &str) -> [u8; 16] {
-    let mut out = [0u8; 16];
-    let b = s.as_bytes();
-    let n = b.len().min(16);
-    out[..n].copy_from_slice(&b[..n]);
-    out
-}
-
-fn decrypt_mokahr(data_b64: &str, key: &str, iv: &str) -> Result<String, String> {
-    use aes::cipher::{
-        block_padding::Pkcs7, generic_array::GenericArray, BlockDecryptMut, KeyIvInit,
-    };
-    use aes::Aes128;
-    use base64::Engine as _;
-    use cbc::Decryptor;
-
-    let mut buf = base64::engine::general_purpose::STANDARD
-        .decode(data_b64)
-        .map_err(|e| format!("base64 解码失败：{e}"))?;
-    let key_arr = *GenericArray::from_slice(&fixed_16(key));
-    let iv_arr = *GenericArray::from_slice(&fixed_16(iv));
-    let cipher = Decryptor::<Aes128>::new(&key_arr, &iv_arr);
-    let pt = cipher
-        .decrypt_padded_mut::<Pkcs7>(&mut buf)
-        .map_err(|e| format!("AES 解密失败：{e}"))?;
-    String::from_utf8(pt.to_vec()).map_err(|e| format!("解密结果非 UTF-8：{e}"))
-}
-
-fn origin_of(url: &str) -> Option<String> {
-    let (scheme, rest) = url.split_once("://")?;
-    let host = rest.split('/').next()?;
-    Some(format!("{scheme}://{host}"))
-}
-
-fn parse_mokahr(url: &str) -> Result<(String, String), String> {
-    let trimmed = url.trim();
-    let (page, frag) = match trimmed.split_once('#') {
-        Some((p, f)) => (p.to_string(), f),
-        None => (trimmed.to_string(), ""),
-    };
-    if page.is_empty() {
-        return Err("URL 无效".to_string());
-    }
-    let job_id = frag
-        .trim_end_matches('/')
-        .rsplit('/')
-        .find(|s| !s.is_empty())
-        .ok_or("URL 中未找到岗位 ID（#/job/... 部分）")?
-        .to_string();
-    Ok((page, job_id))
-}
-
-fn extract_init_value(html: &str) -> Option<String> {
-    let idx = html.find("init-data")?;
-    let rest = &html[idx..].trim_start_matches("init-data");
-    let vpos = rest.find("value=")?;
-    let after = rest[vpos + "value=".len()..].trim_start();
-    let mut chars = after.chars();
-    let quote = chars.next()?;
-    if quote != '"' && quote != '\'' {
-        return None;
-    }
-    let body = &after[quote.len_utf8()..];
-    let end = body.find(quote)?;
-    Some(body[..end].to_string())
-}
-
-fn post_json(agent: &ureq::Agent, url: &str, referer: &str, body: &str) -> Result<String, String> {
-    validate_job_url(url)?;
-    let req = agent
-        .post(url)
-        .set("Content-Type", "application/json")
-        .set("User-Agent", USER_AGENT)
-        .set("Referer", referer);
-    match req.send_string(body) {
-        Ok(resp) if (300..400).contains(&resp.status()) => {
-            Err("岗位接口发生了重定向，站点可能已改版".to_string())
-        }
-        Ok(resp) => response_text(resp),
-        Err(ureq::Error::Status(code, resp)) => Err(status_error(code, resp)),
-        Err(e) => Err(e.to_string()),
-    }
-}
-
-fn json_str(v: &serde_json::Value, keys: &[&str]) -> Option<String> {
-    for k in keys {
-        if let Some(s) = v.get(*k).and_then(|x| x.as_str()) {
-            if !s.trim().is_empty() {
-                return Some(s.to_string());
-            }
-        }
-    }
-    None
-}
-
-fn json_int(v: &serde_json::Value, keys: &[&str]) -> Option<i64> {
-    for k in keys {
-        if let Some(n) = v.get(*k).and_then(|x| x.as_i64()) {
-            return Some(n);
-        }
-    }
-    None
-}
-
-fn fetch_mokahr_impl(url: &str, s: &Settings) -> Result<JobDetail, String> {
-    let (page_url, job_id) = parse_mokahr(url)?;
-    let origin = origin_of(&page_url).ok_or("无法解析 URL 域名")?;
-    let agent = build_fetch_agent(&s.proxy)?;
-
-    let html = get_page(&agent, &page_url, s)?;
-    let init_val = extract_init_value(&html).ok_or("页面中未找到 init-data（站点可能已改版）")?;
-    let init: serde_json::Value = serde_json::from_str(&decode_entities(&init_val))
-        .map_err(|e| format!("init-data 解析失败：{e}"))?;
-
-    let iv = init
-        .get("aesIv")
-        .and_then(|v| v.as_str())
-        .ok_or("init-data 缺少 aesIv")?
-        .to_string();
-    let org_id = init
-        .pointer("/org/id")
-        .and_then(|v| v.as_str())
-        .ok_or("init-data 缺少 org.id")?
-        .to_string();
-    let site_id = init.get("siteId").cloned().ok_or("init-data 缺少 siteId")?;
-    let company = init
-        .pointer("/org/name")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-
-    let body = serde_json::json!({
-        "jobId": job_id,
-        "orgId": org_id,
-        "siteId": site_id,
-        "locale": "zh-CN",
-    })
-    .to_string();
-
-    let api = format!("{origin}/api/outer/ats-apply/website/job");
-    let text = post_json(&agent, &api, &page_url, &body)?;
-    let env: serde_json::Value =
-        serde_json::from_str(&text).map_err(|e| format!("岗位接口响应解析失败：{e}"))?;
-    let data_b64 = env
-        .get("data")
-        .and_then(|v| v.as_str())
-        .ok_or("接口响应缺少 data")?;
-    let key = env
-        .get("necromancer")
-        .and_then(|v| v.as_str())
-        .ok_or("接口响应缺少 necromancer 密钥")?;
-
-    let plain = decrypt_mokahr(data_b64, key, &iv)?;
-    let dec: serde_json::Value =
-        serde_json::from_str(&plain).map_err(|e| format!("解密结果解析失败：{e}"))?;
-    let data = dec.get("data").cloned().unwrap_or(serde_json::Value::Null);
-
-    let title = data
-        .get("title")
-        .and_then(|v| v.as_str())
-        .ok_or("岗位详情缺少标题")?
-        .to_string();
-    let jd_html = data
-        .get("jobDescription")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    let jd_text = if jd_html.trim().is_empty() {
-        None
-    } else {
-        Some(html_to_text(jd_html))
-    };
-
-    Ok(JobDetail {
-        title,
-        company,
-        jd_text,
-        department: json_str(&data, &["department", "dept", "departmentName"]),
-        location: json_str(
-            &data,
-            &["cityName", "workAddress", "location", "city", "address"],
-        ),
-        category: json_str(&data, &["category", "jobCategory", "categoryName"]),
-        salary_min: json_int(&data, &["salaryMin", "salary_min", "minSalary"]),
-        salary_max: json_int(&data, &["salaryMax", "salary_max", "maxSalary"]),
-    })
-}
-
-/// 支持结构化解析的站点。前端通过 `supported_job_hosts` 读取同一份列表，
-/// 避免前后端各维护一份而走偏。
-const SUPPORTED_JOB_HOSTS: [&str; 3] = ["mokahr.com", "lever.co", "greenhouse.io"];
-
-#[tauri::command]
-pub fn supported_job_hosts() -> Vec<String> {
-    SUPPORTED_JOB_HOSTS.iter().map(|h| h.to_string()).collect()
-}
-
-// ---------- Lever / Greenhouse：JSON-LD 结构化数据解析 ----------
-fn extract_json_ld_job(html: &str) -> Option<JobDetail> {
+// ---------- JSON-LD 结构化数据解析 ----------
+/// 很多招聘站点会在页面里以 schema.org `JobPosting` 发布结构化数据（本意就是
+/// 给搜索引擎读的公开信息），能拿到就不必动用 AI。与站点无关，任何页面都试一次。
+pub(crate) fn extract_json_ld_job(html: &str) -> Option<JobDetail> {
     let lower = html.to_ascii_lowercase();
     let mut offset = 0usize;
 
@@ -1203,32 +1016,6 @@ fn job_from_ld_json(v: &serde_json::Value) -> Option<JobDetail> {
     None
 }
 
-fn fetch_json_ld_impl(url: &str, s: &Settings) -> Result<JobDetail, String> {
-    let agent = build_fetch_agent(&s.proxy)?;
-    let html = get_page(&agent, url, s)?;
-    extract_json_ld_job(&html).ok_or_else(|| "页面中未找到职位结构化数据（JSON-LD）".to_string())
-}
-
-#[tauri::command]
-pub fn fetch_job_detail(url: String) -> Result<JobDetail, String> {
-    let s = load_settings();
-    let u = url.trim();
-    let host = validate_job_url(u)?;
-    if host_matches(&host, "mokahr.com") {
-        return fetch_mokahr_impl(u, &s);
-    }
-    if SUPPORTED_JOB_HOSTS
-        .iter()
-        .any(|allowed| host_matches(&host, allowed))
-    {
-        return fetch_json_ld_impl(u, &s);
-    }
-    Err(format!(
-        "暂不支持该网站，目前支持：{}",
-        SUPPORTED_JOB_HOSTS.join(" / ")
-    ))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1236,12 +1023,13 @@ mod tests {
     #[test]
     fn parses_and_matches_real_hosts_only() {
         assert_eq!(
-            url_host("https://jobs.mokahr.com/a").unwrap(),
-            "jobs.mokahr.com"
+            url_host("https://jobs.example.com/a").unwrap(),
+            "jobs.example.com"
         );
-        assert!(host_matches("jobs.mokahr.com", "mokahr.com"));
-        assert!(!host_matches("mokahr.com.evil.example", "mokahr.com"));
-        assert!(!host_matches("evil-mokahr.com", "mokahr.com"));
+        assert!(host_matches("jobs.example.com", "example.com"));
+        assert!(!host_matches("example.com.evil.test", "example.com"));
+        assert!(!host_matches("evil-example.com", "example.com"));
+        assert!(!host_matches("jobs.example.com", ""));
     }
 
     #[test]
@@ -1288,10 +1076,19 @@ mod tests {
     }
 
     #[test]
-    fn supported_hosts_match_dispatch() {
-        for host in supported_job_hosts() {
-            assert!(host_matches(&format!("jobs.{host}"), &host));
-        }
+    fn reads_job_posting_json_ld_from_any_page() {
+        let html = r#"<html><head><script type="application/ld+json">
+            {"@context":"https://schema.org","@type":"JobPosting","title":"后端工程师",
+             "hiringOrganization":{"@type":"Organization","name":"示例科技"},
+             "jobLocation":{"address":{"addressLocality":"上海"}},
+             "description":"<p>负责 &amp; 维护服务</p>"}
+            </script></head><body>ignored</body></html>"#;
+        let job = extract_json_ld_job(html).unwrap();
+        assert_eq!(job.title, "后端工程师");
+        assert_eq!(job.company, "示例科技");
+        assert_eq!(job.location.as_deref(), Some("上海"));
+        assert_eq!(job.jd_text.as_deref(), Some("负责 & 维护服务"));
+        assert!(extract_json_ld_job("<html><body>no data</body></html>").is_none());
     }
 
     #[cfg(windows)]

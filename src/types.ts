@@ -118,6 +118,47 @@ export interface JobDetail {
   salaryMax: number | null;
 }
 
+/** 抓取到但尚未保存的 JD 快照。 */
+export interface SnapshotDraft {
+  token: string | null;
+  sourceUrl: string | null;
+  sourceKind: "url" | "file" | "paste";
+  text: string;
+  detail: JobDetail | null;
+}
+
+/** 已保存的 JD 快照（保存后不再修改）。 */
+export interface JobSnapshot {
+  id: number;
+  job_id: number;
+  source_url: string | null;
+  source_kind: string;
+  text: string;
+  html_path: string | null;
+  captured_at: string;
+}
+
+/** 岗位表单字段：来自结构化数据、AI 提取或手动填写，统一按字符串编辑。 */
+export interface JobFields {
+  companyName: string;
+  title: string;
+  department: string;
+  location: string;
+  category: string;
+  salaryMin: string;
+  salaryMax: string;
+}
+
+export const EMPTY_JOB_FIELDS: JobFields = {
+  companyName: "",
+  title: "",
+  department: "",
+  location: "",
+  category: "",
+  salaryMin: "",
+  salaryMax: "",
+};
+
 export const APPLICATION_STATUS = ["推进中", "已获Offer", "未通过筛选", "无回应超时"];
 export const INTERVIEW_STATUS = ["待面试", "已完成", "已取消"];
 export const INTERVIEW_FORMAT = ["线上视频", "电话", "线下"];

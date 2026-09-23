@@ -1,14 +1,16 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   createCompany, updateCompany, deleteCompany, createJob, updateJob, deleteJob,
   createStage, updateStage, deleteStage, reorderStages,
-  fetchJdText, extractJdInfo,
+  saveJobSnapshot, discardSnapshotDraft,
 } from "../api";
 import { CATEGORIES } from "../types";
-import type { Stage, Company, Job } from "../types";
+import type { Stage, Company, Job, JobFields, SnapshotDraft } from "../types";
 import { useI18n } from "../i18n";
 import { confirm as askConfirm } from "@tauri-apps/plugin-dialog";
 import { useModalFocus } from "../useModalFocus";
+import SnapshotCapture from "./SnapshotCapture";
+import SnapshotViewer from "./SnapshotViewer";
 
 interface Props {
   stages: Stage[];
@@ -27,7 +29,13 @@ type Tab = "stage" | "company" | "job";
 
 export default function ManagementPanel({ stages, companies, jobs, onClose, onChanged }: Props) {
   const { t } = useI18n();
-  const modal = useModalFocus(onClose);
+  // 关窗时丢掉还没存的快照草稿（token 在下方 state 里，用函数取最新值）
+  const draftTokenRef = useRef<string | null>(null);
+  const close = () => {
+    if (draftTokenRef.current) discardSnapshotDraft(draftTokenRef.current).catch(() => {});
+    onClose();
+  };
+  const modal = useModalFocus(close);
   const [tab, setTab] = useState<Tab>("stage");
   const [error, setError] = useState("");
 
@@ -52,14 +60,13 @@ export default function ManagementPanel({ stages, companies, jobs, onClose, onCh
   const [jTitle, setJTitle] = useState("");
   const [jDepartment, setJDepartment] = useState("");
   const [jLocation, setJLocation] = useState("");
-  const [jJdUrl, setJJdUrl] = useState("");
-  const [jJdText, setJJdText] = useState("");
+  const [jDraft, setJDraft] = useState<SnapshotDraft | null>(null);
+  const [captureKey, setCaptureKey] = useState(0);
+  const [viewingJob, setViewingJob] = useState<Job | null>(null);
   const [jSalaryMin, setJSalaryMin] = useState("");
   const [jSalaryMax, setJSalaryMax] = useState("");
   const [jCategory, setJCategory] = useState("");
   const [jCompanyHint, setJCompanyHint] = useState("");
-  const [fetching, setFetching] = useState(false);
-  const [extracting, setExtracting] = useState(false);
 
   const run = async (fn: () => Promise<unknown>) => {
     setError("");
@@ -149,56 +156,56 @@ export default function ManagementPanel({ stages, companies, jobs, onClose, onCh
     });
   };
 
-  const handleFetch = async () => {
-    if (!jJdUrl.trim()) return;
-    setFetching(true);
-    setError("");
-    try {
-      const text = await fetchJdText(jJdUrl.trim());
-      setJJdText(text);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setFetching(false);
-    }
+  const setDraft = (next: SnapshotDraft | null) => {
+    draftTokenRef.current = next?.token ?? null;
+    setJDraft(next);
   };
 
-  const handleExtract = async () => {
-    if (!jJdText.trim()) return;
-    setExtracting(true);
-    setError("");
-    try {
-      const r = await extractJdInfo(jJdText);
-      if (r.title) setJTitle(r.title);
-      if (r.company) setJCompanyHint(r.company);
-      if (r.department) setJDepartment(r.department);
-      if (r.location) setJLocation(r.location);
-      if (r.salaryMin != null) setJSalaryMin(String(r.salaryMin));
-      if (r.salaryMax != null) setJSalaryMax(String(r.salaryMax));
-      if (r.category) setJCategory(r.category);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setExtracting(false);
-    }
+  /**
+   * 只填识别到、且用户还空着的字段，不覆盖已经手动填好的内容。
+   * 用函数式更新读最新值：AI 提取要等好几秒，期间用户可能还在填表。
+   */
+  const applyFields = (f: JobFields) => {
+    const fill = (next: string) => (current: string) => (!current.trim() && next ? next : current);
+    setJTitle(fill(f.title));
+    setJDepartment(fill(f.department));
+    setJLocation(fill(f.location));
+    setJCategory(fill(f.category));
+    setJSalaryMin(fill(f.salaryMin));
+    setJSalaryMax(fill(f.salaryMax));
+    if (!f.companyName) return;
+    const known = companies.find(
+      (c) => c.name.trim().toLocaleLowerCase() === f.companyName.trim().toLocaleLowerCase(),
+    );
+    setJobCompanyId((current) => (current === "" && known ? known.id : current));
+    setJCompanyHint(known ? "" : f.companyName);
+  };
+
+  const handleCaptured = (draft: SnapshotDraft, f: JobFields) => {
+    if (jDraft?.token && jDraft.token !== draft.token) discardSnapshotDraft(jDraft.token).catch(() => {});
+    setDraft(draft);
+    applyFields(f);
   };
 
   const addJob = () => {
     if (jobCompanyId === "" || !jTitle.trim()) return;
     run(async () => {
-      await createJob({
+      const job = await createJob({
         companyId: Number(jobCompanyId),
         title: jTitle.trim(),
         department: jDepartment || null,
         location: jLocation || null,
         category: jCategory || null,
-        jdUrl: jJdUrl || null,
-        jdText: jJdText || null,
+        jdUrl: jDraft?.sourceUrl ?? null,
+        jdText: null,
         salaryMin: jSalaryMin ? Number(jSalaryMin) : null,
         salaryMax: jSalaryMax ? Number(jSalaryMax) : null,
       });
+      if (jDraft) await saveJobSnapshot(job.id, jDraft);
+      setDraft(null);
+      setCaptureKey((k) => k + 1);
       setJTitle(""); setJDepartment(""); setJLocation(""); setJCategory("");
-      setJJdUrl(""); setJJdText(""); setJSalaryMin(""); setJSalaryMax(""); setJCompanyHint("");
+      setJSalaryMin(""); setJSalaryMax(""); setJCompanyHint("");
     });
   };
 
@@ -209,6 +216,7 @@ export default function ManagementPanel({ stages, companies, jobs, onClose, onCh
   ];
 
   return (
+    <>
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-20 p-4">
       <div ref={modal.ref} onKeyDown={modal.onKeyDown} role="dialog" aria-modal="true" aria-label={t("公司、岗位与阶段管理")} tabIndex={-1} className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[85vh] flex flex-col">
         <div className="flex items-center justify-between px-6 pt-5 pb-3 border-b border-neutral-200">
@@ -225,7 +233,7 @@ export default function ManagementPanel({ stages, companies, jobs, onClose, onCh
               </button>
             ))}
           </div>
-          <button onClick={onClose} aria-label={t("关闭")} className="text-neutral-400 hover:text-neutral-600 text-xl leading-none">&times;</button>
+          <button onClick={close} aria-label={t("关闭")} className="text-neutral-400 hover:text-neutral-600 text-xl leading-none">&times;</button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-4">
@@ -299,7 +307,7 @@ export default function ManagementPanel({ stages, companies, jobs, onClose, onCh
                         </div>
                         <div className="flex items-center gap-3 shrink-0">
                           <button className="text-neutral-400 hover:text-neutral-600 text-sm" onClick={() => startEditCompany(c)}>{t("编辑")}</button>
-                          <button className={danger} onClick={() => confirmDelete(t("删除公司会同时删除其岗位、投递、面试和附件，确认继续？"), () => deleteCompany(c.id))}>{t("删除")}</button>
+                          <button className={danger} onClick={() => confirmDelete(t("删除公司会同时删除其岗位、投递、面试、附件和 JD 快照，确认继续？"), () => deleteCompany(c.id))}>{t("删除")}</button>
                         </div>
                       </>
                     )}
@@ -313,25 +321,13 @@ export default function ManagementPanel({ stages, companies, jobs, onClose, onCh
           {tab === "job" && (
             <div className="space-y-4">
               <div>
-                <label className={label}>{t("URL 抓取 / 信息提取")}</label>
-                <div className="flex gap-2 mb-2">
-                  <input className={field} value={jJdUrl} onChange={(e) => setJJdUrl(e.target.value)} placeholder={t("粘贴职位链接，点击抓取")} />
-                  <button onClick={handleFetch} disabled={fetching} className={`${btn} border border-neutral-300 hover:bg-neutral-50 disabled:opacity-50 whitespace-nowrap`}>
-                    {fetching ? t("抓取中…") : t("抓取")}
-                  </button>
-                </div>
-                <textarea
-                  className={field}
-                  rows={4}
-                  value={jJdText}
-                  onChange={(e) => setJJdText(e.target.value)}
-                  placeholder={t("JD 描述文本（可手动粘贴，或从链接抓取）")}
-                />
-                <div className="flex justify-end mt-2">
-                  <button onClick={handleExtract} disabled={extracting} className={`${btn} border border-neutral-300 hover:bg-neutral-50 disabled:opacity-50`}>
-                    {extracting ? t("提取中…") : t("提取信息填充")}
-                  </button>
-                </div>
+                <label className={label}>{t("JD 快照（可选）")}</label>
+                <SnapshotCapture key={captureKey} onCaptured={handleCaptured} onExtracted={applyFields} />
+                {jDraft && (
+                  <p className="mt-1 text-xs text-neutral-400">
+                    {t("快照共 {n} 字，添加岗位时会一并存档", { n: jDraft.text.length })}
+                  </p>
+                )}
               </div>
 
               <div>
@@ -409,8 +405,9 @@ export default function ManagementPanel({ stages, companies, jobs, onClose, onCh
                             )}
                           </div>
                           <div className="flex items-center gap-3 shrink-0">
+                            <button className="text-neutral-400 hover:text-neutral-600 text-sm" onClick={() => setViewingJob(j)}>{t("快照")}</button>
                             <button className="text-neutral-400 hover:text-neutral-600 text-sm" onClick={() => startEditJob(j)}>{t("编辑")}</button>
-                            <button className={danger} onClick={() => confirmDelete(t("删除岗位会同时删除相关投递、面试和附件，确认继续？"), () => deleteJob(j.id))}>{t("删除")}</button>
+                            <button className={danger} onClick={() => confirmDelete(t("删除岗位会同时删除相关投递、面试、附件和 JD 快照，确认继续？"), () => deleteJob(j.id))}>{t("删除")}</button>
                           </div>
                         </>
                       )}
@@ -424,5 +421,14 @@ export default function ManagementPanel({ stages, companies, jobs, onClose, onCh
         </div>
       </div>
     </div>
+    {viewingJob && (
+      <SnapshotViewer
+        jobId={viewingJob.id}
+        jobTitle={viewingJob.title}
+        companyName={companies.find((c) => c.id === viewingJob.company_id)?.name ?? ""}
+        onClose={() => setViewingJob(null)}
+      />
+    )}
+    </>
   );
 }

@@ -2,6 +2,7 @@ mod commands;
 mod db;
 mod extract;
 mod models;
+mod snapshot;
 
 use db::Db;
 use std::path::Path;
@@ -11,7 +12,10 @@ pub fn run() {
     let db_path = db::prepare_data_dir().join("offerflow.db");
     let context = tauri::generate_context!();
     match db::init(&db_path) {
-        Ok(conn) => start(Db::new(conn), context),
+        Ok(conn) => {
+            snapshot::clear_pending();
+            start(Db::new(conn), context)
+        }
         // 这里以前是 expect()：任何初始化失败都会变成无窗口、无提示的闪退，
         // 用户完全不知道发生了什么。改成弹一个能看懂的原生提示再退出。
         Err(err) => fail(&err, &db_path),
@@ -32,6 +36,9 @@ fn start(db_state: Db, context: tauri::Context) {
             Ok(())
         })
         .manage(db_state)
+        // 注意：Tauri 2 里没标 async 的命令直接在主线程执行，期间窗口会冻住。
+        // 凡是会访问网络、启动子进程或读写大文件的命令，都要写成
+        // `#[tauri::command(async)]` 放到线程池里跑；只做一次 SQLite 查询的可以保持同步。
         .invoke_handler(tauri::generate_handler![
             commands::list_stages,
             commands::create_stage,
@@ -76,12 +83,15 @@ fn start(db_state: Db, context: tauri::Context) {
             commands::list_review_notes,
             extract::get_settings,
             extract::set_settings,
-            extract::fetch_jd_text,
             extract::extract_jd_info,
             extract::list_ollama_models,
             extract::check_ollama,
-            extract::fetch_job_detail,
-            extract::supported_job_hosts,
+            snapshot::capture_snapshot_from_url,
+            snapshot::capture_snapshot_from_file,
+            snapshot::discard_snapshot_draft,
+            snapshot::save_job_snapshot,
+            snapshot::list_job_snapshots,
+            snapshot::delete_job_snapshot,
         ])
         .run(context)
         .expect("error while running tauri application");

@@ -95,7 +95,7 @@ fn friendly_db_error(err: rusqlite::Error, context: &str) -> String {
     text
 }
 
-fn remove_managed_files(paths: Vec<String>) {
+pub(crate) fn remove_managed_files(paths: Vec<String>) {
     remove_files_under_root(paths, crate::db::default_db_dir());
 }
 
@@ -475,7 +475,8 @@ pub fn update_company(
 #[tauri::command]
 pub fn delete_company(state: State<Db>, id: i64) -> Result<(), String> {
     let conn = state.0.lock().unwrap();
-    let paths = attachment_paths(&conn, "SELECT at.filepath FROM attachments at JOIN interviews i ON i.id=at.interview_id JOIN applications a ON a.id=i.application_id JOIN jobs j ON j.id=a.job_id WHERE j.company_id=?1", id)?;
+    let mut paths = attachment_paths(&conn, "SELECT at.filepath FROM attachments at JOIN interviews i ON i.id=at.interview_id JOIN applications a ON a.id=i.application_id JOIN jobs j ON j.id=a.job_id WHERE j.company_id=?1", id)?;
+    paths.extend(attachment_paths(&conn, "SELECT s.html_path FROM job_snapshots s JOIN jobs j ON j.id=s.job_id WHERE j.company_id=?1 AND s.html_path IS NOT NULL", id)?);
     conn.execute("DELETE FROM companies WHERE id = ?1", params![id])
         .map_err(|x| x.to_string())?;
     drop(conn);
@@ -573,7 +574,12 @@ pub fn update_job(
 #[tauri::command]
 pub fn delete_job(state: State<Db>, id: i64) -> Result<(), String> {
     let conn = state.0.lock().unwrap();
-    let paths = attachment_paths(&conn, "SELECT at.filepath FROM attachments at JOIN interviews i ON i.id=at.interview_id JOIN applications a ON a.id=i.application_id WHERE a.job_id=?1", id)?;
+    let mut paths = attachment_paths(&conn, "SELECT at.filepath FROM attachments at JOIN interviews i ON i.id=at.interview_id JOIN applications a ON a.id=i.application_id WHERE a.job_id=?1", id)?;
+    paths.extend(attachment_paths(
+        &conn,
+        "SELECT html_path FROM job_snapshots WHERE job_id=?1 AND html_path IS NOT NULL",
+        id,
+    )?);
     conn.execute("DELETE FROM jobs WHERE id = ?1", params![id])
         .map_err(|x| x.to_string())?;
     drop(conn);
@@ -899,7 +905,7 @@ pub fn delete_attachment(state: State<Db>, id: i64) -> Result<(), String> {
 /// 走后端而不是前端的 `openPath`，是因为 opener 的能力白名单只能写死路径，
 /// 一旦用户用 `OFFERFLOW_DATA_DIR` 换了数据目录，前端调用就会被权限拒掉。
 /// 这里按运行时真实的数据目录做包含性校验，语义更准也更严。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn open_managed_path(app: tauri::AppHandle, path: String) -> Result<(), String> {
     let requested = std::path::PathBuf::from(&path)
         .canonicalize()
@@ -919,7 +925,7 @@ pub fn open_managed_path(app: tauri::AppHandle, path: String) -> Result<(), Stri
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn import_attachment(
     state: State<Db>,
     interview_id: i64,
@@ -1061,7 +1067,7 @@ fn strip_html(s: &str) -> String {
     crate::extract::decode_entities(&out)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn export_excel(state: State<Db>, path: String) -> Result<(), String> {
     use rust_xlsxwriter::Workbook;
 
@@ -1242,7 +1248,7 @@ pub fn list_resumes(state: State<Db>) -> Result<Vec<Resume>, String> {
     Ok(v)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn import_resume(
     state: State<Db>,
     name: String,
@@ -1381,7 +1387,7 @@ fn vacuum_to(conn: &rusqlite::Connection, dest: &Path) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn export_backup(state: State<Db>, target_dir: String) -> Result<String, String> {
     let base = std::path::PathBuf::from(&target_dir);
     let data_dir = crate::db::default_db_dir();
@@ -1412,6 +1418,10 @@ pub fn export_backup(state: State<Db>, target_dir: String) -> Result<String, Str
     if src_resumes.exists() {
         copy_dir_recursive(&src_resumes, &dir.join("resumes"))?;
     }
+    let src_snapshots = data_dir.join("snapshots");
+    if src_snapshots.exists() {
+        copy_dir_recursive(&src_snapshots, &dir.join("snapshots"))?;
+    }
     let settings = data_dir.join("settings.json");
     if settings.exists() {
         let raw = std::fs::read_to_string(&settings).map_err(|e| e.to_string())?;
@@ -1435,7 +1445,7 @@ pub fn export_backup(state: State<Db>, target_dir: String) -> Result<String, Str
     Ok(dir.to_string_lossy().to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn import_backup(source_dir: String) -> Result<String, String> {
     let src = std::path::PathBuf::from(&source_dir);
     let src_db = src.join("offerflow.db");
@@ -1462,6 +1472,15 @@ pub fn import_backup(source_dir: String) -> Result<String, String> {
     std::fs::create_dir_all(&pending_resumes).map_err(|e| e.to_string())?;
     if src_resumes.exists() {
         copy_dir_recursive(&src_resumes, &pending_resumes)?;
+    }
+    let src_snapshots = src.join("snapshots");
+    let pending_snapshots = data_dir.join("restore_snapshots");
+    if pending_snapshots.exists() {
+        std::fs::remove_dir_all(&pending_snapshots).map_err(|e| e.to_string())?;
+    }
+    std::fs::create_dir_all(&pending_snapshots).map_err(|e| e.to_string())?;
+    if src_snapshots.exists() {
+        copy_dir_recursive(&src_snapshots, &pending_snapshots)?;
     }
     let settings = src.join("settings.json");
     if settings.exists() {

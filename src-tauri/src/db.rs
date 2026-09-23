@@ -138,7 +138,17 @@ CREATE TABLE IF NOT EXISTS activity_logs (
   detail TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
+CREATE TABLE IF NOT EXISTS job_snapshots (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  source_url TEXT,
+  source_kind TEXT NOT NULL,
+  text TEXT NOT NULL,
+  html_path TEXT,
+  captured_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
 CREATE INDEX IF NOT EXISTS idx_jobs_company ON jobs(company_id);
+CREATE INDEX IF NOT EXISTS idx_job_snapshots_job ON job_snapshots(job_id, id DESC);
 CREATE INDEX IF NOT EXISTS idx_applications_job ON applications(job_id);
 CREATE INDEX IF NOT EXISTS idx_applications_stage ON applications(stage_id);
 CREATE INDEX IF NOT EXISTS idx_interviews_application ON interviews(application_id);
@@ -157,7 +167,8 @@ const DEFAULT_STAGES: [&str; 7] = [
     "HR面",
     "Offer",
 ];
-pub const SCHEMA_VERSION: i64 = 1;
+/// 1：初始版本；2：新增 job_snapshots，旧的 jobs.jd_text 迁为快照。
+pub const SCHEMA_VERSION: i64 = 2;
 
 fn writable_dir(path: &Path) -> bool {
     if fs::create_dir_all(path).is_err() {
@@ -316,12 +327,29 @@ pub fn init(db_path: &Path) -> Result<Connection, String> {
         ensure_pending_apply_stage(&tx)?;
         ensure_job_category_column(&tx)?;
         ensure_resume_tags_column(&tx)?;
+        if current_version < 2 {
+            migrate_jd_text_to_snapshots(&tx)?;
+        }
         tx.pragma_update(None, "user_version", SCHEMA_VERSION)
             .map_err(|e| e.to_string())?;
         tx.commit().map_err(|e| e.to_string())?;
     }
     repair_managed_file_paths(&conn, db_path.parent().unwrap_or_else(|| Path::new(".")))?;
     Ok(conn)
+}
+
+/// 旧版把 JD 文本直接存在 jobs.jd_text 里；升级时各转成一份快照，
+/// 抓取时间取岗位创建时间，来源标记为 legacy。原列保留不动。
+fn migrate_jd_text_to_snapshots(conn: &Connection) -> Result<(), String> {
+    conn.execute(
+        "INSERT INTO job_snapshots (job_id, source_url, source_kind, text, captured_at) \
+         SELECT id, jd_url, 'legacy', jd_text, created_at FROM jobs \
+         WHERE jd_text IS NOT NULL AND trim(jd_text) != '' \
+           AND NOT EXISTS (SELECT 1 FROM job_snapshots s WHERE s.job_id = jobs.id)",
+        [],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 fn seed_default_stages(conn: &Connection) -> Result<(), String> {
@@ -527,7 +555,23 @@ fn apply_pending_restore(db_path: &Path) -> Result<(), String> {
             return Err(e);
         }
     };
+    let snapshots_replaced = match replace_pending_dir(dir, "snapshots") {
+        Ok(v) => v,
+        Err(e) => {
+            if resumes_replaced {
+                rollback_dir(dir, "resumes");
+            }
+            if attachments_replaced {
+                rollback_dir(dir, "attachments");
+            }
+            rollback_database(db_path);
+            return Err(e);
+        }
+    };
     if let Err(e) = replace_pending_file(dir, "settings.restore.json", "settings.json") {
+        if snapshots_replaced {
+            rollback_dir(dir, "snapshots");
+        }
         if resumes_replaced {
             rollback_dir(dir, "resumes");
         }
@@ -551,6 +595,7 @@ fn quarantine_pending_restore(db_path: &Path) {
         "offerflow_restore.db",
         "restore_attachments",
         "restore_resumes",
+        "restore_snapshots",
         "settings.restore.json",
     ] {
         let pending = dir.join(name);
@@ -622,6 +667,38 @@ fn repair_managed_file_paths(conn: &Connection, dir: &Path) -> Result<(), String
             }
             conn.execute(
                 "UPDATE attachments SET filepath=?1 WHERE id=?2",
+                params![new, id],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+    }
+    let mut stmt = conn
+        .prepare("SELECT id, job_id, html_path FROM job_snapshots WHERE html_path IS NOT NULL")
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, String>(2)?,
+            ))
+        })
+        .map_err(|e| e.to_string())?;
+    let items: Vec<_> = rows.filter_map(Result::ok).collect();
+    drop(stmt);
+    for (id, job_id, old) in items {
+        if let Some(name) = Path::new(&old).file_name() {
+            let new = dir
+                .join("snapshots")
+                .join(job_id.to_string())
+                .join(name)
+                .to_string_lossy()
+                .to_string();
+            if new == old {
+                continue;
+            }
+            conn.execute(
+                "UPDATE job_snapshots SET html_path=?1 WHERE id=?2",
                 params![new, id],
             )
             .map_err(|e| e.to_string())?;
@@ -704,6 +781,38 @@ mod tests {
         assert_eq!(fs::read(target.join("resumes/a.pdf")).unwrap(), b"edited");
 
         let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn upgrades_v1_jd_text_into_snapshots_once() {
+        let path = temp_db("upgrade");
+        {
+            let conn = init(&path).unwrap();
+            conn.execute("INSERT INTO companies(name) VALUES('Example')", [])
+                .unwrap();
+            conn.execute(
+                "INSERT INTO jobs(company_id,title,jd_url,jd_text) VALUES(1,'A','https://a.example/1','JD 原文')",
+                [],
+            )
+            .unwrap();
+            conn.execute("INSERT INTO jobs(company_id,title) VALUES(1,'B')", [])
+                .unwrap();
+            // 模拟一个还停留在 v1、没有快照的旧库
+            conn.execute("DELETE FROM job_snapshots", []).unwrap();
+            conn.pragma_update(None, "user_version", 1).unwrap();
+        }
+        for _ in 0..2 {
+            let conn = init(&path).unwrap();
+            let rows: Vec<(i64, String, String)> = conn
+                .prepare("SELECT job_id, source_kind, text FROM job_snapshots")
+                .unwrap()
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+                .unwrap()
+                .map(Result::unwrap)
+                .collect();
+            assert_eq!(rows, vec![(1, "legacy".to_string(), "JD 原文".to_string())]);
+        }
+        let _ = fs::remove_file(&path);
     }
 
     #[test]

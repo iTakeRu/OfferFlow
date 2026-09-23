@@ -115,6 +115,19 @@ pub struct ActivityLog {
     pub detail: String,
     pub created_at: String,
 }
+/// 岗位 JD 的网页快照，保存后不再修改。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JobSnapshot {
+    pub id: i64,
+    pub job_id: i64,
+    pub source_url: Option<String>,
+    /// url / file / paste，以及从旧版 jobs.jd_text 迁移来的 legacy
+    pub source_kind: String,
+    pub text: String,
+    pub html_path: Option<String>,
+    pub captured_at: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReviewNote {
     pub id: i64,
