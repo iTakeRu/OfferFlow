@@ -159,7 +159,9 @@ fn copy_new_files(src: &Path, dst: &Path, report: &mut MirrorReport) -> Result<(
 
 /// 只保留最近 `keep` 份每日数据库（文件名带日期，按名字排序即按时间排序）。
 fn prune_db_history(dir: &Path, keep: usize) {
-    let Ok(entries) = fs::read_dir(dir) else { return };
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
     let mut files: Vec<PathBuf> = entries
         .flatten()
         .map(|e| e.path())
@@ -317,7 +319,11 @@ mod tests {
     use super::*;
 
     fn temp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("offerflow-protect-{name}-{}-{}", std::process::id(), now_ms()));
+        let dir = std::env::temp_dir().join(format!(
+            "offerflow-protect-{name}-{}-{}",
+            std::process::id(),
+            now_ms()
+        ));
         fs::create_dir_all(&dir).unwrap();
         dir
     }
@@ -331,7 +337,10 @@ mod tests {
         let batch = root.join("trash/123");
         move_to_trash(&file, &root, &batch).unwrap();
         assert!(!file.exists());
-        assert_eq!(fs::read(batch.join("attachments/7/rec.m4a")).unwrap(), b"audio");
+        assert_eq!(
+            fs::read(batch.join("attachments/7/rec.m4a")).unwrap(),
+            b"audio"
+        );
         let _ = fs::remove_dir_all(root);
     }
 
@@ -347,7 +356,10 @@ mod tests {
         assert_eq!(purge_trash(&root, 30, now), 1);
         assert!(!root.join("trash").join(&old).exists());
         assert!(root.join("trash").join(&recent).exists());
-        assert!(root.join("trash/not-a-batch").exists(), "不认识的目录不能删");
+        assert!(
+            root.join("trash/not-a-batch").exists(),
+            "不认识的目录不能删"
+        );
         let _ = fs::remove_dir_all(root);
     }
 
@@ -370,9 +382,15 @@ mod tests {
         fs::create_dir_all(data.join("attachments/1")).unwrap();
         fs::create_dir_all(&target).unwrap();
         fs::write(data.join("attachments/1/a.m4a"), b"first").unwrap();
-        fs::write(data.join("settings.json"), br#"{"openaiKey":"sk-secret","cookie":"c=1","provider":"none"}"#).unwrap();
+        fs::write(
+            data.join("settings.json"),
+            br#"{"openaiKey":"sk-secret","cookie":"c=1","provider":"none"}"#,
+        )
+        .unwrap();
         let db = Db::new(crate::db::init(&data.join("offerflow.db")).unwrap());
-        db.0.lock().execute("INSERT INTO companies(name) VALUES('镜像测试')", []).unwrap();
+        db.0.lock()
+            .execute("INSERT INTO companies(name) VALUES('镜像测试')", [])
+            .unwrap();
 
         let first = sync_mirror(&db, &data, &target).unwrap();
         assert_eq!((first.copied_files, first.unchanged_files), (1, 0));
@@ -383,14 +401,21 @@ mod tests {
         let second = sync_mirror(&db, &data, &target).unwrap();
         assert_eq!((second.copied_files, second.unchanged_files), (1, 0));
         let mirror = target.join(MIRROR_FOLDER);
-        assert!(mirror.join("attachments/1/a.m4a").exists(), "镜像不应跟着本地删除");
+        assert!(
+            mirror.join("attachments/1/a.m4a").exists(),
+            "镜像不应跟着本地删除"
+        );
         assert!(mirror.join("attachments/1/b.m4a").exists());
 
         // 镜像能通过完整备份的校验，数据库里有刚写入的数据，且不含密钥
         crate::db::validate_backup_database(&mirror.join("offerflow.db")).unwrap();
         let conn = rusqlite::Connection::open(mirror.join("offerflow.db")).unwrap();
         let n: i64 = conn
-            .query_row("SELECT COUNT(*) FROM companies WHERE name = '镜像测试'", [], |r| r.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM companies WHERE name = '镜像测试'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(n, 1);
         drop(conn);
@@ -409,7 +434,10 @@ mod tests {
         fs::create_dir_all(data.join("sub")).unwrap();
         let db = Db::new(crate::db::init(&data.join("offerflow.db")).unwrap());
         assert!(sync_mirror(&db, &data, &data.join("sub")).is_err());
-        assert!(sync_mirror(&db, &data, &base).is_err(), "数据目录的上级也不行");
+        assert!(
+            sync_mirror(&db, &data, &base).is_err(),
+            "数据目录的上级也不行"
+        );
         db.close_for_exit();
         let _ = fs::remove_dir_all(base);
     }

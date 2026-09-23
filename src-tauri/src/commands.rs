@@ -192,7 +192,10 @@ mod tests {
             Some(&batch),
         );
         assert!(!inside.exists(), "原位置的文件应被移走");
-        assert_eq!(std::fs::read(batch.join("attachments/3/interview.m4a")).unwrap(), b"audio");
+        assert_eq!(
+            std::fs::read(batch.join("attachments/3/interview.m4a")).unwrap(),
+            b"audio"
+        );
         assert!(outside.exists(), "数据目录之外的文件不能动");
         let _ = std::fs::remove_dir_all(base);
     }
@@ -1426,7 +1429,9 @@ pub(crate) fn vacuum_to(conn: &rusqlite::Connection, dest: &Path) -> Result<(), 
 /// 备份位置不能在数据目录里，也不能是数据目录的上级，否则备份会把自己套进去。
 pub(crate) fn ensure_outside_data_dir(target: &Path, data_dir: &Path) -> Result<(), String> {
     let target = target.canonicalize().map_err(|e| e.to_string())?;
-    let data = data_dir.canonicalize().unwrap_or_else(|_| data_dir.to_path_buf());
+    let data = data_dir
+        .canonicalize()
+        .unwrap_or_else(|_| data_dir.to_path_buf());
     if target.starts_with(&data) || data.starts_with(&target) {
         return Err("备份位置不能是应用数据目录或其上级目录".to_string());
     }
@@ -1442,8 +1447,14 @@ pub(crate) fn write_sanitized_settings(data_dir: &Path, dest_dir: &Path) -> Resu
     let raw = std::fs::read_to_string(&settings).map_err(|e| e.to_string())?;
     let mut value: serde_json::Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
     if let Some(obj) = value.as_object_mut() {
-        obj.insert("openaiKey".to_string(), serde_json::Value::String(String::new()));
-        obj.insert("cookie".to_string(), serde_json::Value::String(String::new()));
+        obj.insert(
+            "openaiKey".to_string(),
+            serde_json::Value::String(String::new()),
+        );
+        obj.insert(
+            "cookie".to_string(),
+            serde_json::Value::String(String::new()),
+        );
     }
     std::fs::write(
         dest_dir.join("settings.json"),

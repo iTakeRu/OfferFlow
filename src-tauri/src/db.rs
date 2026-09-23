@@ -378,7 +378,11 @@ pub fn init(db_path: &Path) -> Result<Connection, String> {
 /// 升级本身在事务里，失败会整体回滚；这份副本防的是「升级逻辑有 bug、但事务成功提交」
 /// 把数据改坏的情况。备份不成功就不升级，宁可这次打不开，也不冒险改动唯一的一份数据。
 /// 只备份数据库：升级只改库，不动录音、简历等文件。
-fn backup_before_upgrade(conn: &Connection, db_path: &Path, from_version: i64) -> Result<(), String> {
+fn backup_before_upgrade(
+    conn: &Connection,
+    db_path: &Path,
+    from_version: i64,
+) -> Result<(), String> {
     let has_data: bool = conn
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'applications')",
@@ -389,12 +393,17 @@ fn backup_before_upgrade(conn: &Connection, db_path: &Path, from_version: i64) -
     if !has_data {
         return Ok(()); // 全新的空库，没有可备份的内容
     }
-    let dir = db_path.parent().unwrap_or_else(|| Path::new(".")).join("backups");
+    let dir = db_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("backups");
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|e| e.to_string())?
         .as_millis();
-    let dest = dir.join(format!("offerflow-v{from_version}-before-v{SCHEMA_VERSION}-{stamp}.db"));
+    let dest = dir.join(format!(
+        "offerflow-v{from_version}-before-v{SCHEMA_VERSION}-{stamp}.db"
+    ));
     let escaped = dest.to_string_lossy().replace('\'', "''");
     fs::create_dir_all(&dir)
         .map_err(|e| e.to_string())
@@ -831,7 +840,11 @@ mod tests {
         assert!(!shm.exists(), "关闭后不应残留 -shm");
         let conn = Connection::open(&path).unwrap();
         let n: i64 = conn
-            .query_row("SELECT COUNT(*) FROM companies WHERE name = '收尾测试'", [], |r| r.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM companies WHERE name = '收尾测试'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(n, 1, "WAL 里的数据应已合并进主库");
         drop(conn);
@@ -873,7 +886,10 @@ mod tests {
         fs::remove_file(target.join("offerflow.db")).unwrap();
         assert!(legacy.join(".migrated").exists());
         migrate_data_dir(&legacy, &target);
-        assert!(target.join("offerflow.db").exists(), "目标库丢失时应重新迁移");
+        assert!(
+            target.join("offerflow.db").exists(),
+            "目标库丢失时应重新迁移"
+        );
         assert_eq!(fs::read(target.join("resumes/a.pdf")).unwrap(), b"edited");
 
         // 目标目录整个不存在（本次出问题的情形）：同样迁回来
@@ -885,7 +901,10 @@ mod tests {
         // 换到另一个全新的数据目录：用户要的是一份新数据，旧数据不能被塞进去
         let elsewhere = base.join("elsewhere");
         migrate_data_dir(&legacy, &elsewhere);
-        assert!(!elsewhere.join("offerflow.db").exists(), "新位置不应被迁入旧数据");
+        assert!(
+            !elsewhere.join("offerflow.db").exists(),
+            "新位置不应被迁入旧数据"
+        );
 
         let _ = fs::remove_dir_all(base);
     }
@@ -929,8 +948,11 @@ mod tests {
             .map(|e| e.unwrap().path())
             .collect();
         assert_eq!(backups.len(), 1, "应当恰好有一份升级前备份：{backups:?}");
-        let old = Connection::open_with_flags(&backups[0], OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
-        let version: i64 = old.pragma_query_value(None, "user_version", |r| r.get(0)).unwrap();
+        let old =
+            Connection::open_with_flags(&backups[0], OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+        let version: i64 = old
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap();
         assert_eq!(version, 1);
         let snapshots: i64 = old
             .query_row("SELECT COUNT(*) FROM job_snapshots", [], |r| r.get(0))
