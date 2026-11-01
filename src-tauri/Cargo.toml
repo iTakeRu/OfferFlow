@@ -1,0 +1,36 @@
+[package]
+name = "offerflow"
+version = "1.0.0"
+description = "Privacy-first desktop job application tracker"
+authors = ["OfferFlow contributors"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "offerflow_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+tauri-plugin-dialog = "2"
+dirs = "6.0.0"
+base64 = "0.22"
+rust_xlsxwriter = "0.99.0"
+ureq = { version = "2.10", features = ["cookies"] }
+url = "2"
+encoding_rs = "0.8"
+semver = "1"
+
+[dev-dependencies]
+tempfile = "3"

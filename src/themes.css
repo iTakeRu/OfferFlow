@@ -1,0 +1,248 @@
+/*
+ * 杂志以外的几套主题。默认（杂志）的变量在 index.css 的 @theme 里，
+ * 这里按 <html data-theme="..."> 整组覆盖；组件只用语义类名，不感知主题。
+ */
+
+/* ===== 简约：浅灰白底、无衬线、柔和圆角与轻投影 ===== */
+:root[data-theme="clean"] {
+  --font-serif: "Inter", "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-display: "Inter", "Segoe UI Variable Display", "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-weight-black: 700;
+  --tracking-wide: 0;
+
+  --color-paper: #f6f7f9;
+  --color-card: #ffffff;
+  --color-ink: #111827;
+  --color-navy: #2563eb;
+  --color-navy-deep: #1d4ed8;
+  --color-navy-soft: #3b82f6;
+  --color-navy-tint: #e8efff;
+  --color-navy-muted: #dbe6ff;
+  --color-ochre: #15803d;
+  --color-ochre-dark: #475569;
+  --color-ochre-light: #16a34a;
+  --color-ochre-tint: #dcfce7;
+
+  --color-white: #ffffff;
+  --color-neutral-50: #f3f4f6;
+  --color-neutral-100: #eceef2;
+  --color-neutral-200: #e3e6eb;
+  --color-neutral-300: #d1d5db;
+  --color-neutral-400: #6b7280;
+  --color-neutral-500: #4b5563;
+  --color-neutral-600: #374151;
+  --color-neutral-700: #1f2937;
+  --color-neutral-800: #111827;
+  --color-neutral-900: #0b0f19;
+
+  --color-red-50: #fef2f2;
+  --color-red-100: #fee2e2;
+  --color-red-500: #ef4444;
+  --color-red-600: #dc2626;
+  --color-red-700: #b91c1c;
+  --color-amber-100: #fef3c7;
+  --color-amber-400: #f59e0b;
+  --color-amber-700: #b45309;
+  --color-green-100: #dcfce7;
+  --color-green-700: #15803d;
+
+  --color-on-navy: #ffffff;
+  --color-on-ochre: #ffffff;
+  --color-rule: #d1d5db;
+  --color-scrim: rgb(15 23 42 / 0.4);
+
+  --color-side: #ffffff;
+  --color-side-fg: #374151;
+  --color-side-muted: #6b7280;
+  --color-side-hover: #f3f4f6;
+  --color-side-line: #eceef2;
+  --color-side-edge: #e3e6eb;
+  --color-side-active: #eef2ff;
+  --color-side-active-fg: #1d4ed8;
+
+  --radius: 0.375rem;
+  --radius-xs: 0.25rem;
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.625rem;
+  --radius-xl: 0.75rem;
+  --radius-2xl: 1rem;
+
+  --shadow-sm: 0 1px 2px rgb(16 24 40 / 0.05);
+  --shadow: 0 1px 3px rgb(16 24 40 / 0.08), 0 1px 2px rgb(16 24 40 / 0.04);
+  --shadow-xl: 0 24px 48px -12px rgb(16 24 40 / 0.25);
+
+  --surface-border: #e5e7eb;
+  --surface-accent-border: #15803d;
+  --surface-shadow: 0 1px 2px rgb(16 24 40 / 0.05);
+}
+
+/* ===== 夜间：深色底、靛蓝主色、琥珀强调 ===== */
+:root[data-theme="midnight"] {
+  color-scheme: dark;
+  --font-serif: "Inter", "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-display: "Inter", "Segoe UI Variable Display", "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-weight-black: 700;
+  --tracking-wide: 0;
+
+  --color-paper: #0e1117;
+  --color-card: #161b24;
+  --color-ink: #e6e9ef;
+  --color-navy: #4459d6;
+  --color-navy-deep: #5468e0;
+  --color-navy-soft: #5a6ee3;
+  --color-navy-tint: #1e2542;
+  --color-navy-muted: #dfe4ff;
+  --color-ochre: #f2b544;
+  --color-ochre-dark: #f2b544;
+  --color-ochre-light: #fde68a;
+  --color-ochre-tint: #3a2e14;
+
+  --color-white: #161b24;
+  --color-neutral-50: #1a1f2a;
+  --color-neutral-100: #202634;
+  --color-neutral-200: #2a3140;
+  --color-neutral-300: #394152;
+  --color-neutral-400: #8b93a5;
+  --color-neutral-500: #a3aabb;
+  --color-neutral-600: #bac0cd;
+  --color-neutral-700: #d0d4dd;
+  --color-neutral-800: #e1e4ea;
+  --color-neutral-900: #eef0f4;
+
+  --color-red-50: #2a1719;
+  --color-red-100: #3a1c1f;
+  --color-red-500: #f87171;
+  --color-red-600: #f87171;
+  --color-red-700: #fca5a5;
+  --color-amber-100: #3a2e14;
+  --color-amber-400: #f2b544;
+  --color-amber-700: #fbbf24;
+  --color-green-100: #14301f;
+  --color-green-700: #4ade80;
+  --color-purple-100: #2d1f45;
+  --color-purple-700: #c4a5ff;
+
+  --color-on-navy: #ffffff;
+  --color-on-ochre: #1b1405;
+  --color-rule: #353d4e;
+  --color-scrim: rgb(0 0 0 / 0.6);
+
+  --color-side: #0a0d12;
+  --color-side-fg: #c9ced9;
+  --color-side-muted: #7c8497;
+  --color-side-hover: #161b24;
+  --color-side-line: #1d2330;
+  --color-side-edge: #1d2330;
+  --color-side-active: #1e2542;
+  --color-side-active-fg: #aab6ff;
+
+  --radius: 0.375rem;
+  --radius-xs: 0.25rem;
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.625rem;
+  --radius-xl: 0.75rem;
+  --radius-2xl: 1rem;
+
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow: 0 1px 3px rgb(0 0 0 / 0.5);
+  --shadow-xl: 0 24px 60px -10px rgb(0 0 0 / 0.7);
+
+  --surface-border: #232a37;
+  --surface-accent-border: #f2b544;
+  --surface-shadow: none;
+}
+
+/* ===== 波普（新野兽派）：奶黄底、2px 黑框、硬投影、撞色 ===== */
+:root[data-theme="pop"] {
+  --font-serif: "Bahnschrift", "Arial Black", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-display: "Bahnschrift", "Arial Black", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+
+  --color-paper: #fff6d8;
+  --color-card: #ffffff;
+  --color-ink: #111111;
+  --color-navy: #3348e8;
+  --color-navy-deep: #2536c9;
+  --color-navy-soft: #4a5ef0;
+  --color-navy-tint: #e3e7ff;
+  --color-navy-muted: #d6dcff;
+  --color-ochre: #ff8fb8;
+  --color-ochre-dark: #c2185b;
+  --color-ochre-light: #ffb3cf;
+  --color-ochre-tint: #ffe0ec;
+
+  --color-white: #ffffff;
+  --color-neutral-50: #fbf5e2;
+  --color-neutral-100: #f5ecd0;
+  --color-neutral-200: #e9dfbf;
+  /* 300 在各组件里是输入框描边，波普下直接用黑框 */
+  --color-neutral-300: #1a1a1a;
+  --color-neutral-400: #6b6558;
+  --color-neutral-500: #4d483e;
+  --color-neutral-600: #3a362e;
+  --color-neutral-700: #26231e;
+  --color-neutral-800: #181613;
+  --color-neutral-900: #111111;
+
+  --color-red-50: #ffe5e5;
+  --color-red-100: #ffd6d6;
+  --color-red-500: #e5383b;
+  --color-red-600: #d62828;
+  --color-red-700: #a4161a;
+  --color-amber-100: #fff0b3;
+  --color-amber-400: #ffc233;
+  --color-amber-700: #8a5200;
+  --color-green-100: #d7f7df;
+  --color-green-700: #1b7f3b;
+
+  --color-on-navy: #ffffff;
+  --color-on-ochre: #111111;
+  --color-rule: #111111;
+  --color-scrim: rgb(17 17 17 / 0.5);
+
+  --color-side: #111111;
+  --color-side-fg: #fff6d8;
+  --color-side-muted: #a8a08a;
+  --color-side-hover: #2a2a2a;
+  --color-side-line: #333333;
+  --color-side-edge: #111111;
+  --color-side-active: #ffd23f;
+  --color-side-active-fg: #111111;
+
+  --radius: 0.375rem;
+  --radius-xs: 0.25rem;
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+  --radius-2xl: 1rem;
+
+  --shadow-sm: 2px 2px 0 0 #111111;
+  --shadow: 3px 3px 0 0 #111111;
+  --shadow-xl: 8px 8px 0 0 #111111;
+
+  --surface-border-width: 2px;
+  --surface-border: #111111;
+  --surface-accent-border: #111111;
+  --surface-shadow: 4px 4px 0 0 #111111;
+}
+
+/*
+ * 夜间主题里 navy 同时当按钮底色（上面放白字）和文字色（放在深底上），
+ * 一个色值两头都达不到 4.5:1，所以作文字用时单独提亮
+ */
+:root[data-theme="midnight"] .text-navy {
+  color: #9aa8ff;
+}
+
+/* 无衬线主题下，大号数字用半粗体并收紧字距，400 字重在 60px 下显得发虚 */
+:root[data-theme="clean"] .font-display,
+:root[data-theme="midnight"] .font-display {
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+:root[data-theme="pop"] .font-display {
+  font-weight: 700;
+}
