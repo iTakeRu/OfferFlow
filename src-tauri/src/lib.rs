@@ -1,3 +1,7 @@
+mod boss;
+mod chrome;
+#[cfg(windows)]
+mod chrome_window;
 mod commands;
 mod db;
 mod experiences;
@@ -101,7 +105,10 @@ fn start(db_state: Db, context: tauri::Context) {
             extract::list_ollama_models,
             extract::check_ollama,
             snapshot::capture_snapshot_from_url,
+            snapshot::capture_snapshot_from_chrome,
+            snapshot::capture_current_boss_job,
             snapshot::capture_snapshot_from_file,
+            snapshot::capture_snapshot_from_text,
             snapshot::discard_snapshot_draft,
             snapshot::save_job_snapshot,
             snapshot::list_job_snapshots,

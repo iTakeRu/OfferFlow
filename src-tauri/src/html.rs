@@ -10,7 +10,7 @@ fn clean_text(s: &str) -> String {
     let mut prev_newline = 0u8;
     for ch in s.chars() {
         if ch == '\n' || ch == '\r' {
-            if !in_space && prev_newline < 2 {
+            if prev_newline == 0 {
                 out.push('\n');
                 prev_newline += 1;
             }
@@ -41,6 +41,15 @@ pub(crate) fn decode_entities(s: &str) -> String {
 }
 
 pub fn html_to_text(html: &str) -> String {
+    to_text(html, false)
+}
+
+/// 招聘卡片常把城市、经验等相邻字段放在没有空白的行内元素里。
+pub(crate) fn job_card_text(html: &str) -> String {
+    to_text(html, true)
+}
+
+fn to_text(html: &str, separate_fields: bool) -> String {
     let lower = html.to_ascii_lowercase();
     let lb = lower.as_bytes();
     let b = html.as_bytes();
@@ -79,7 +88,13 @@ pub fn html_to_text(html: &str) -> String {
                 skip_until = Some(close);
                 continue;
             }
-            if after.starts_with("<br") {
+            if separate_fields
+                && (after.starts_with("</span>")
+                    || after.starts_with("</a>")
+                    || after.starts_with("</em>"))
+            {
+                out.push(' ');
+            } else if after.starts_with("<br") {
                 out.push('\n');
             } else {
                 let mut is_block_close = false;
@@ -96,6 +111,11 @@ pub fn html_to_text(html: &str) -> String {
                     "</h6",
                     "</section",
                     "</article",
+                    "</aside",
+                    "</header",
+                    "</nav",
+                    "</dd",
+                    "</dt",
                     "</ul",
                     "</ol",
                     "</table",

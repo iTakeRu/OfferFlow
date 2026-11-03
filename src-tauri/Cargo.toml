@@ -1,6 +1,6 @@
 [package]
 name = "offerflow"
-version = "1.0.0"
+version = "1.0.1"
 description = "Privacy-first desktop job application tracker"
 authors = ["OfferFlow contributors"]
 edition = "2021"
@@ -22,6 +22,7 @@ tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+regex = "1"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 tauri-plugin-dialog = "2"
 dirs = "6.0.0"
@@ -31,6 +32,10 @@ ureq = { version = "2.10", features = ["cookies"] }
 url = "2"
 encoding_rs = "0.8"
 semver = "1"
+tungstenite = "0.28"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = ["Win32_UI_Accessibility", "Win32_UI_WindowsAndMessaging", "Win32_System_Threading", "Win32_System_Com", "Win32_System_Ole", "Win32_System_Variant"] }
 
 [dev-dependencies]
 tempfile = "3"

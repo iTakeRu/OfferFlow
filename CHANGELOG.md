@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.0.1 — 2026-11-03
+
+- Windows 上可以从已打开的 Chrome 一键保存 BOSS 直聘职位，识别公司、岗位、城市和月薪。快照保留职责、要求和薪数，自动排除排名和推荐内容。
+- 新建投递直接填入抓取到的岗位名，可手动编辑。同名岗位可分别保存薪资、链接和快照。
+- 投递渠道支持下拉选择、历史渠道和自定义输入。BOSS 直聘链接会自动识别渠道。
+- 精简经历库工具栏，移除复制操作提示。
+
+### English
+
+- Capture an open BOSS Zhipin posting from Chrome on Windows, including employer, title, location and salary. Snapshots keep the job description and omit rankings and recommendations.
+- New applications use the captured title as editable text. Postings with the same title can keep separate salaries, links and snapshots.
+- Choose a previous application channel or enter a new one. BOSS Zhipin links fill the channel automatically.
+- Removed the copy instructions from the experience library toolbar.
+
 ## v1.0.0 — 2026-10-31
 
 OfferFlow 首个正式版本，面向 Windows x64，支持中文与英文界面。

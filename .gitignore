@@ -6,6 +6,7 @@ dist/
 
 # 用户数据（隐私，切勿提交）
 data/
+.claude/
 
 # 打包/便携产物
 OfferFlow.exe

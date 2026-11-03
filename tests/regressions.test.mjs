@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createApplicationSaver } from "../src/applicationSave.ts";
+import { channelFromSource, channelOptions, createApplicationSaver } from "../src/applicationSave.ts";
 import { interviewDateTimeValue } from "../src/format.ts";
 import { CATEGORIES, categoryOptions } from "../src/types.ts";
 
@@ -65,4 +65,12 @@ test("category options keep defaults first and add used custom categories once",
   const jobs = [{ category: "营销类" }, { category: null }, { category: " 技术类 " }, { category: "营销类" }, { category: "  " }, { category: "游戏策划" }];
   assert.deepEqual(categoryOptions(jobs), [...CATEGORIES, "营销类", "游戏策划"]);
   assert.deepEqual(categoryOptions([]), CATEGORIES);
+});
+test("channel suggestions keep custom history and infer only known source hosts", () => {
+  assert.deepEqual(channelOptions([{ channel: " 微信群 " }, { channel: "Boss直聘" }, { channel: null }]),
+    ["BOSS直聘", "官网", "内推", "微信群"]);
+  assert.equal(channelFromSource("https://www.zhipin.com/job_detail/123.html"), "BOSS直聘");
+  assert.equal(channelFromSource("https://app.mokahr.com/jobs/123"), "官网");
+  assert.equal(channelFromSource("https://zhipin.com.example.org/"), "");
+  assert.equal(channelFromSource(null), "");
 });

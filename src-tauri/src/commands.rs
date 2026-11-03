@@ -556,19 +556,22 @@ pub fn create_job(
     jd_text: Option<String>,
     salary_min: Option<i64>,
     salary_max: Option<i64>,
+    allow_same_title: Option<bool>,
 ) -> Result<Job, String> {
     let title = require_text(title, "岗位名称")?;
     validate_salary(salary_min, salary_max)?;
     let conn = state.0.lock().unwrap();
-    let duplicate: i64 = conn
+    if !allow_same_title.unwrap_or(false) {
+        let duplicate: i64 = conn
         .query_row(
             "SELECT COUNT(*) FROM jobs WHERE company_id=?1 AND lower(trim(title))=lower(trim(?2))",
             params![company_id, title],
             |r| r.get(0),
         )
         .map_err(|e| e.to_string())?;
-    if duplicate > 0 {
-        return Err("该公司下已存在同名岗位".to_string());
+        if duplicate > 0 {
+            return Err("该公司下已存在同名岗位".to_string());
+        }
     }
     conn.execute(
         "INSERT INTO jobs (company_id, title, department, location, category, jd_url, jd_text, salary_min, salary_max) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",

@@ -218,10 +218,10 @@ export default function ExperienceView() {
     .map(k => ({ kind: k, items: visible.filter(x => x.kind === k).sort(compareExperiences) }))
     .filter(g => g.items.length);
   return <div className="space-y-5 max-w-7xl mx-auto">
-    <div className="flex flex-wrap gap-3 justify-between items-center"><p className="text-sm text-neutral-500">{t("选好版本，点一下复制，粘贴到招聘表单。")}</p><div className="flex flex-wrap gap-2">
+    <div className="flex flex-wrap justify-end gap-2">
       <label className={button + " cursor-pointer"}>{t(importing ? "导入中…" : "导入经历")}<input type="file" accept=".json,application/json" className="sr-only" disabled={importing} onChange={e => { void importFile(e.target.files?.[0]); e.target.value = ""; }} /></label>
       <button className={primary} onClick={() => setEditing(createExperience(kind || "work", t("通用版")))}>{t("+ 新增经历")}</button>
-    </div></div>
+    </div>
     <div className="flex flex-wrap gap-3 items-center"><input className={input + " sm:max-w-sm"} type="search" aria-label={t("搜索经历")} placeholder={t("搜索公司、学校、项目或版本内容…")} value={query} onChange={e => setQuery(e.target.value)} /><button className={button} onClick={() => void refresh()} disabled={loading}>{t("刷新")}</button><span className="text-xs text-neutral-500">{t("{n} 段经历", { n: visible.length })}</span></div>
     <div className="flex flex-wrap gap-2" aria-label={t("经历类型")}><button aria-pressed={!kind} className={!kind ? primary : button} onClick={() => setKind("")}>{t("全部")}</button>{Object.entries(EXPERIENCE_KINDS).map(([k, name]) => <button key={k} aria-pressed={kind === k} className={kind === k ? primary : button} onClick={() => setKind(k as ExperienceKind)}>{t(name)}</button>)}</div>
     {error && <div role="alert" className="text-sm text-red-600">{error}</div>}

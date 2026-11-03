@@ -37,6 +37,21 @@ pub enum DetailSource {
 
 pub(crate) fn detect_job(html: &str, url: Option<&str>) -> Option<(JobDetail, DetailSource)> {
     let page = Page::new(html);
+    if url
+        .map(crate::boss::is_url)
+        .unwrap_or_else(|| page.mentions("zhipin.com"))
+    {
+        if let Some(job) = crate::boss::from_html(&page, html) {
+            return Some((job, DetailSource::Site));
+        }
+        // 公司职位列表可能包含其他岗位的结构化数据，不能用第一条兜底。
+        return url
+            .and_then(|u| url::Url::parse(u).ok())
+            .filter(|u| u.path().starts_with("/job_detail/"))
+            .and_then(|_| json_ld_job(&page))
+            .filter(|j| j.jd_text.as_ref().is_some_and(|s| !s.trim().is_empty()))
+            .map(|j| (j, DetailSource::Structured));
+    }
     json_ld_job(&page)
         .map(|job| (job, DetailSource::Structured))
         .or_else(|| site_job(&page, url).map(|job| (job, DetailSource::Site)))

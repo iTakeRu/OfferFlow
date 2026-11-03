@@ -20,7 +20,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::{AppHandle, State};
 
 const MAX_FILE_BYTES: u64 = 20 * 1024 * 1024;
-const MAX_TEXT_CHARS: usize = 500_000;
+pub(crate) const MAX_TEXT_CHARS: usize = 500_000;
 
 /// 抓取结果，尚未入库。
 #[derive(Serialize)]
@@ -84,6 +84,8 @@ const NEEDS_BROWSER: &str = "抓到的只是空白的页面框架：这个站点
 const THIN_PAGE: &str = "页面里几乎没有正文，可能需要登录才能看到。\
      可以在浏览器里打开岗位页后「另存为」网页再导入，或直接粘贴 JD 文本。";
 
+pub(crate) const BOSS_NO_DETAIL: &str = "未识别到 BOSS 直聘的单个岗位详情。请打开目标职位，确认能看到岗位名称、薪资和职位描述后重新抓取；也可以复制这部分文字，使用「粘贴文本」。";
+
 /// `#/job/xxx` 这类前端路由：`#` 后面的部分根本不会发给服务器，HTTP 抓取只能拿到门户首页。
 fn hash_routed(url: &str) -> bool {
     url.split_once('#')
@@ -112,7 +114,14 @@ fn make_draft(
     let page_text = html_to_text(html);
     let found = detect_job(html, source_url.as_deref());
     // 有 JobPosting 数据就说明内容是真的，不管页面其余部分多空。
-    if !matches!(found, Some((_, DetailSource::Structured))) {
+    let boss = source_url
+        .as_deref()
+        .map(crate::boss::is_url)
+        .unwrap_or_else(|| Page::new(html).mentions("zhipin.com"));
+    if boss && found.is_none() {
+        return Err(BOSS_NO_DETAIL.to_string());
+    }
+    if !boss && !matches!(found, Some((_, DetailSource::Structured))) {
         check_content(&page_text, source_url.as_deref(), rendered)?;
     }
     let (mut detail, detail_source) = found.unzip();
@@ -324,15 +333,46 @@ fn read_page_file(path: &Path) -> Result<(Option<String>, String), String> {
 #[tauri::command(async)]
 pub fn capture_snapshot_from_url(app: AppHandle, url: String) -> Result<SnapshotDraft, String> {
     validate_job_url(&url)?;
-    if !hash_routed(&url) {
-        let direct = fetch_page_html(&url)
-            .and_then(|page| make_draft(Some(page.url), "url", &page.html, page.rendered));
+    if !hash_routed(&url) && !crate::boss::is_company_listing(&url) {
+        let direct = fetch_page_html(&url).and_then(|page| {
+            if crate::boss::is_url(&url) && !crate::boss::is_url(&page.url) {
+                return Err(BOSS_NO_DETAIL.to_string());
+            }
+            make_draft(Some(page.url), "url", &page.html, page.rendered)
+        });
         if let Ok(draft) = direct {
             return Ok(draft);
         }
     }
     let page = page_window::load_page(&app, &url)?;
     make_draft(Some(page.url), "url", &page.html, true)
+}
+
+#[tauri::command(async)]
+pub fn capture_current_boss_job() -> Result<SnapshotDraft, String> {
+    #[cfg(windows)]
+    {
+        let (url, text) = crate::chrome_window::read_boss()?;
+        let mut job = crate::boss::from_text(&text).ok_or(BOSS_NO_DETAIL)?;
+        Ok(SnapshotDraft {
+            token: None,
+            source_url: Some(url),
+            source_kind: "url".into(),
+            text: crate::boss::clean_accessible_snapshot(
+                job.jd_text.take().as_deref().unwrap_or(&text),
+            ),
+            detail: Some(job),
+            detail_source: Some(DetailSource::Site),
+        })
+    }
+    #[cfg(not(windows))]
+    Err("此功能需要 Windows。".into())
+}
+
+#[tauri::command(async)]
+pub fn capture_snapshot_from_chrome(url: String) -> Result<SnapshotDraft, String> {
+    let html = crate::chrome::capture(&url)?;
+    make_draft(Some(url), "url", &html, true)
 }
 
 #[tauri::command(async)]
@@ -343,6 +383,29 @@ pub fn capture_snapshot_from_file(path: String) -> Result<SnapshotDraft, String>
 }
 
 #[tauri::command]
+pub fn capture_snapshot_from_text(
+    text: String,
+    source_url: Option<String>,
+) -> Result<SnapshotDraft, String> {
+    if text.chars().count() > MAX_TEXT_CHARS {
+        return Err("快照正文过长".into());
+    }
+    let detail = if source_url.as_deref().is_none_or(crate::boss::is_url) {
+        crate::boss::from_text(&text)
+    } else {
+        None
+    };
+    Ok(SnapshotDraft {
+        token: None,
+        source_url: clean_source_url(source_url),
+        source_kind: "paste".into(),
+        text,
+        detail_source: detail.as_ref().map(|_| DetailSource::Site),
+        detail,
+    })
+}
+
+#[tauri::command]
 pub fn discard_snapshot_draft(token: String) -> Result<(), String> {
     let path = pending_path(&token)?;
     let _ = std::fs::remove_file(path);
@@ -350,7 +413,7 @@ pub fn discard_snapshot_draft(token: String) -> Result<(), String> {
 }
 
 fn row_snapshot(r: &Row) -> rusqlite::Result<JobSnapshot> {
-    Ok(JobSnapshot {
+    let mut snapshot = JobSnapshot {
         id: r.get(0)?,
         job_id: r.get(1)?,
         source_url: r.get(2)?,
@@ -358,7 +421,17 @@ fn row_snapshot(r: &Row) -> rusqlite::Result<JobSnapshot> {
         text: r.get(4)?,
         html_path: r.get(5)?,
         captured_at: r.get(6)?,
-    })
+    };
+    if snapshot.source_kind == "url"
+        && snapshot.html_path.is_none()
+        && snapshot
+            .source_url
+            .as_deref()
+            .is_some_and(crate::boss::is_url)
+    {
+        snapshot.text = crate::boss::clean_accessible_snapshot(&snapshot.text);
+    }
+    Ok(snapshot)
 }
 
 const SNAPSHOT_COLUMNS: &str = "id, job_id, source_url, source_kind, text, html_path, captured_at";
@@ -475,6 +548,42 @@ pub fn delete_job_snapshot(state: State<Db>, id: i64) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reopens_accessibility_snapshot_with_intact_headings_and_paragraphs() {
+        let raw = "产品运营（示例项目）\n12-24K·13薪\n杭州 2-4年 本科\n\n【关于我\n们】\nExample Project（测试\n项目说明）提供操作手\n册，便于阅读。\n每季度更新文档。\n【岗位职责】\n1. 推进运营项目\n2. 分析数据";
+        let expected = raw
+            .replace("我\n们", "我们")
+            .replace("测试\n项目", "测试项目")
+            .replace("手\n册", "手册");
+        let db = rusqlite::Connection::open_in_memory().unwrap();
+        for (kind, html, url, text) in [
+            (
+                "url",
+                None,
+                "https://www.zhipin.com/gongsi/job/a",
+                expected.as_str(),
+            ),
+            ("paste", None, "https://www.zhipin.com/gongsi/job/a", raw),
+            (
+                "url",
+                Some("page.html"),
+                "https://www.zhipin.com/job_detail/a",
+                raw,
+            ),
+            ("url", None, "https://example.com/job", raw),
+        ] {
+            let snap = db
+                .query_row(
+                    "SELECT 5, 1, ?1, ?2, ?3, ?4, '2026-11-03'",
+                    params![url, kind, raw, html],
+                    row_snapshot,
+                )
+                .unwrap();
+            assert_eq!(snap.text, text);
+        }
+        assert_eq!(crate::boss::clean_accessible_snapshot(&expected), expected);
+    }
 
     #[test]
     fn reads_page_url_from_saved_html() {

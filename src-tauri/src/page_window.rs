@@ -27,7 +27,7 @@ pub(crate) struct LoadedPage {
 }
 
 /// 同一时间只加载一个页面，避免两个抓取共用一个窗口。
-static BUSY: Mutex<()> = Mutex::new(());
+static BUSY: Mutex<Option<String>> = Mutex::new(None);
 
 pub(crate) const STILL_LOADING: &str = "页面在 25 秒内没有加载出岗位内容，已把加载窗口显示出来。\
      如果需要登录或完成验证，请在那个窗口里处理好，然后回到这里再点一次「抓取快照」。";
@@ -60,20 +60,33 @@ fn read_html(window: &WebviewWindow) -> Option<String> {
     (html.len() <= MAX_HTML_BYTES).then_some(html)
 }
 
-fn open_window(app: &AppHandle, url: Url) -> Result<WebviewWindow, String> {
+fn open_window(app: &AppHandle, url: Url, resume_selection: bool) -> Result<WebviewWindow, String> {
     // 上次超时留下的窗口：用户可能刚在里面登录 / 验证过，直接在原窗口里重新打开链接。
     if let Some(window) = app.get_webview_window(LABEL) {
-        window.navigate(url).map_err(|e| e.to_string())?;
+        if !resume_selection {
+            window.navigate(url).map_err(|e| e.to_string())?;
+        }
         return Ok(window);
     }
+    let list_window = crate::boss::is_company_listing(url.as_str()).then(|| app.clone());
     WebviewWindowBuilder::new(app, LABEL, WebviewUrl::External(url))
         .title("OfferFlow · 加载岗位页面")
         .inner_size(1100.0, 800.0)
         .visible(false)
         .focused(false)
-        // 只允许普通网页地址；弹窗一律不开。
+        // 公司列表里另开标签的职位也在当前加载窗口查看。
         .on_navigation(|u| matches!(u.scheme(), "http" | "https"))
-        .on_new_window(|_, _| NewWindowResponse::Deny)
+        .on_new_window(move |target, _| {
+            if crate::boss::is_url(target.as_str()) && target.path().starts_with("/job_detail/") {
+                if let Some(window) = list_window
+                    .as_ref()
+                    .and_then(|a| a.get_webview_window(LABEL))
+                {
+                    let _ = window.navigate(target);
+                }
+            }
+            NewWindowResponse::Deny
+        })
         .build()
         .map_err(|e| format!("无法打开页面加载窗口：{e}"))
 }
@@ -83,11 +96,20 @@ pub(crate) fn load_page(app: &AppHandle, url: &str) -> Result<LoadedPage, String
     let url = url.trim();
     validate_job_url(url)?;
     let parsed = Url::parse(url).map_err(|e| format!("链接无效：{e}"))?;
-    let _guard = BUSY
+    let mut previous = BUSY
         .try_lock()
         .map_err(|_| "正在加载另一个页面，请稍候".to_string())?;
 
-    let window = open_window(app, parsed)?;
+    let boss = crate::boss::is_url(url);
+    let resume =
+        boss && previous.as_deref() == Some(url) && app.get_webview_window(LABEL).is_some();
+    let window = open_window(app, parsed, resume)?;
+    *previous = Some(url.to_owned());
+    if crate::boss::is_company_listing(url) && !resume {
+        window.show().map_err(|e| e.to_string())?;
+        let _ = window.set_focus();
+        return Err("这是 BOSS 直聘的公司在招列表。请在加载窗口选中目标岗位，看到职位描述后，回到这里再点一次「抓取快照」。".into());
+    }
     let started = Instant::now();
     let (mut last_len, mut settled) = (usize::MAX, 0u32);
     while started.elapsed() < TIMEOUT {
@@ -95,7 +117,7 @@ pub(crate) fn load_page(app: &AppHandle, url: &str) -> Result<LoadedPage, String
         let Some((complete, len, current)) = probe(&window) else {
             continue;
         };
-        settled = if complete && len >= MIN_TEXT_CHARS && len == last_len {
+        settled = if complete && (len >= MIN_TEXT_CHARS || boss && len > 0) && len == last_len {
             settled + 1
         } else {
             0
@@ -112,12 +134,26 @@ pub(crate) fn load_page(app: &AppHandle, url: &str) -> Result<LoadedPage, String
             detect_job(&html, Some(&current)),
             Some((_, DetailSource::Structured | DetailSource::Site))
         );
+        if boss && (!crate::boss::is_url(&current) || !recognised) {
+            if settled >= SETTLED_POLLS {
+                break;
+            }
+            continue;
+        }
         if recognised || settled >= SETTLED_POLLS {
             let _ = window.close();
+            *previous = None;
             return Ok(LoadedPage { url: current, html });
         }
     }
     let _ = window.show();
     let _ = window.set_focus();
-    Err(STILL_LOADING.to_string())
+    if boss {
+        Err(format!(
+            "已显示加载窗口。{}",
+            crate::snapshot::BOSS_NO_DETAIL
+        ))
+    } else {
+        Err(STILL_LOADING.to_string())
+    }
 }

@@ -44,7 +44,7 @@ export type JobInput = {
   salaryMax?: number | null;
 };
 export const listJobs = (companyId?: number | null) => invoke<Job[]>("list_jobs", { companyId });
-export const createJob = (p: JobInput) => invoke<Job>("create_job", p);
+export const createJob = (p: JobInput & { allowSameTitle?: boolean }) => invoke<Job>("create_job", p);
 export const updateJob = (id: number, p: JobInput) => invoke<Job>("update_job", { id, ...p });
 export const deleteJob = (id: number) => invoke<void>("delete_job", { id });
 
@@ -116,8 +116,13 @@ export const checkOllama = () => invoke<OllamaStatus>("check_ollama");
 // 抓取只返回草稿（原始页面暂存在 pending 目录），用户确认后再 saveJobSnapshot 入库。
 export const captureSnapshotFromUrl = (url: string) =>
   invoke<SnapshotDraft>("capture_snapshot_from_url", { url });
+export const captureSnapshotFromChrome = (url: string) =>
+  invoke<SnapshotDraft>("capture_snapshot_from_chrome", { url });
+export const captureCurrentBossJob = () => invoke<SnapshotDraft>("capture_current_boss_job");
 export const captureSnapshotFromFile = (path: string) =>
   invoke<SnapshotDraft>("capture_snapshot_from_file", { path });
+export const captureSnapshotFromText = (text: string, sourceUrl: string | null) =>
+  invoke<SnapshotDraft>("capture_snapshot_from_text", { text, sourceUrl });
 export const discardSnapshotDraft = (token: string) =>
   invoke<void>("discard_snapshot_draft", { token });
 export const saveJobSnapshot = (jobId: number, d: SnapshotDraft) =>

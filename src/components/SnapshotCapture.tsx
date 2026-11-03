@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { open, confirm } from "@tauri-apps/plugin-dialog";
 import {
-  captureSnapshotFromUrl, captureSnapshotFromFile, extractJdInfo, getSettings,
+  captureSnapshotFromUrl, captureSnapshotFromChrome, captureCurrentBossJob, captureSnapshotFromFile, captureSnapshotFromText, extractJdInfo, getSettings,
 } from "../api";
 import { EMPTY_JOB_FIELDS } from "../types";
 import type { ExtractSettings, ExtractedJob, JobDetail, JobFields, SnapshotDraft } from "../types";
@@ -32,7 +32,7 @@ function aiTarget(s: ExtractSettings): AiTarget | null {
   return null;
 }
 
-type Mode = "url" | "file" | "paste";
+type Mode = "url" | "chrome" | "file" | "paste";
 type Status = { tone: "ok" | "warn"; text: string } | null;
 
 const field =
@@ -80,7 +80,7 @@ export default function SnapshotCapture({ onCaptured, onExtracted, skipExtractio
   const [url, setUrl] = useState("");
   const [pasteText, setPasteText] = useState("");
   const [pasteUrl, setPasteUrl] = useState("");
-  const [busy, setBusy] = useState<"" | "capture" | "ai">("");
+  const [busy, setBusy] = useState<"" | "capture" | "current" | "ai">("");
   const [status, setStatus] = useState<Status>(null);
   const [error, setError] = useState("");
   const [aiOffer, setAiOffer] = useState<AiOffer | null>(null);
@@ -157,11 +157,11 @@ export default function SnapshotCapture({ onCaptured, onExtracted, skipExtractio
     }
   };
 
-  const run = async (capture: () => Promise<SnapshotDraft | null>) => {
+  const run = async (capture: () => Promise<SnapshotDraft | null>, activity: "capture" | "current" = "capture") => {
     setError("");
     setStatus(null);
     setAiOffer(null);
-    setBusy("capture");
+    setBusy(activity);
     let draft: SnapshotDraft | null = null;
     try {
       draft = await capture();
@@ -178,7 +178,7 @@ export default function SnapshotCapture({ onCaptured, onExtracted, skipExtractio
       setError(t("请先粘贴岗位链接"));
       return;
     }
-    run(() => captureSnapshotFromUrl(url.trim()));
+    run(() => mode === "chrome" ? captureSnapshotFromChrome(url.trim()) : captureSnapshotFromUrl(url.trim()));
   };
 
   const fromFile = () =>
@@ -202,14 +202,7 @@ export default function SnapshotCapture({ onCaptured, onExtracted, skipExtractio
       setError(t("来源地址必须是 http:// 或 https:// 开头的网址"));
       return;
     }
-    run(async () => ({
-      token: null,
-      sourceUrl: source || null,
-      sourceKind: "paste",
-      text: body,
-      detail: null,
-      detailSource: null,
-    }));
+    run(() => captureSnapshotFromText(body, source || null));
   };
 
   const tab = (m: Mode, label: string) => (
@@ -230,13 +223,26 @@ export default function SnapshotCapture({ onCaptured, onExtracted, skipExtractio
 
   return (
     <div className="space-y-2">
-      <div className="flex gap-1">
+      <div className="flex flex-wrap items-center gap-1">
+        {navigator.userAgent.includes("Windows") && (
+          <button type="button" disabled={busy !== ""} className={actionBtn}
+            onClick={() => run(captureCurrentBossJob, "current")}
+            title={t("在 Chrome 展开目标职位，直接切回这里抓取正文。")}>
+            {busy === "current" ? t("抓取中…") : t("抓取 Chrome 当前 BOSS 职位")}
+          </button>
+        )}
         {tab("url", t("岗位链接"))}
+        {tab("chrome", t("Chrome 调试连接"))}
         {tab("file", t("网页文件"))}
         {tab("paste", t("粘贴文本"))}
       </div>
 
-      {mode === "url" && (
+      {mode === "chrome" && (
+        <p className="text-xs text-neutral-600">
+          {t("在 Chrome 展开目标职位，复制地址栏完整链接。首次使用请在 Chrome 144+ 的 chrome://inspect/#remote-debugging 启用远程调试，抓取时允许连接。")}
+        </p>
+      )}
+      {(mode === "url" || mode === "chrome") && (
         <div className="flex gap-2">
           <input
             className={field}
@@ -246,7 +252,7 @@ export default function SnapshotCapture({ onCaptured, onExtracted, skipExtractio
             placeholder={t("粘贴岗位页面链接")}
           />
           <button type="button" onClick={fromUrl} disabled={busy !== ""} className={actionBtn}>
-            {busy === "capture" ? t("抓取中…") : t("抓取快照")}
+            {busy === "capture" ? t("抓取中…") : mode === "chrome" ? t("从 Chrome 抓取") : t("抓取快照")}
           </button>
         </div>
       )}

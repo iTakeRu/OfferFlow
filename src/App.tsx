@@ -308,6 +308,7 @@ export default function App() {
       {appModal && (
         <ApplicationModal
           state={appModal}
+          applications={applications}
           stages={stages}
           companies={companies}
           jobs={jobs}

@@ -7,12 +7,12 @@ import { APPLICATION_STATUS, EMPTY_JOB_FIELDS, categoryOptions } from "../types"
 import type { Stage, Company, Job, Application, JobFields, SnapshotDraft } from "../types";
 import { useI18n } from "../i18n";
 import ActivityTimeline from "./ActivityTimeline";
-import CategoryInput from "./CategoryInput";
+import { CategoryInput, CustomSelect } from "./CustomSelect";
 import SnapshotCapture from "./SnapshotCapture";
 import SnapshotViewer from "./SnapshotViewer";
 import { confirm as askConfirm } from "@tauri-apps/plugin-dialog";
 import { useModalFocus } from "../useModalFocus";
-import { createApplicationSaver } from "../applicationSave";
+import { channelFromSource, channelOptions, createApplicationSaver } from "../applicationSave";
 import type { ApplicationInput } from "../api";
 
 interface Props {
@@ -20,6 +20,7 @@ interface Props {
   stages: Stage[];
   companies: Company[];
   jobs: Job[];
+  applications: Application[];
   onClose: () => void;
   onSaved: () => void | Promise<void>;
   onOpenInterview?: (app: Application) => void;
@@ -37,21 +38,13 @@ const today = () => {
 
 const norm = (v: string) => v.trim().toLocaleLowerCase();
 
-/** 已有岗位里可以在投递窗口直接改的字段。 */
-const jobInfo = (j: Job | undefined) => ({
-  department: j?.department ?? "",
-  location: j?.location ?? "",
-  category: j?.category ?? "",
-});
-
-export default function ApplicationModal({ state, stages, companies, jobs, onClose, onSaved, onOpenInterview }: Props) {
+export default function ApplicationModal({ state, stages, companies, jobs, applications, onClose, onSaved, onOpenInterview }: Props) {
   const { t } = useI18n();
   const app = state.mode === "edit" ? state.app : null;
-  const initialCompany = app ? jobs.find((j) => j.id === app.job_id)?.company_id ?? "" : "";
+  const currentJob = app ? jobs.find((j) => j.id === app.job_id) : undefined;
 
-  const [companyId, setCompanyId] = useState<number | "">(initialCompany);
-  const [jobId, setJobId] = useState<number | "">(app ? app.job_id : "");
-  const [channel, setChannel] = useState(app?.channel ?? "");
+  const [companyId, setCompanyId] = useState<number | "">(currentJob?.company_id ?? "");
+  const [manualChannel, setChannel] = useState<string | null>(app?.channel ?? null);
   const [resumeVersion, setResumeVersion] = useState(app?.resume_version ?? "");
   const [stageId, setStageId] = useState<number>(app?.stage_id ?? stages[0]?.id ?? 0);
   const [status, setStatus] = useState<string>(app?.status ?? APPLICATION_STATUS[0]);
@@ -62,7 +55,17 @@ export default function ApplicationModal({ state, stages, companies, jobs, onClo
 
   // JD 快照与新岗位信息：都只在保存投递时才落库
   const [draft, setDraft] = useState<SnapshotDraft | null>(null);
-  const [fields, setFields] = useState<JobFields>(EMPTY_JOB_FIELDS);
+  const [fields, setFields] = useState<JobFields>(() => currentJob ? {
+    title: currentJob.title, companyName: companies.find((c) => c.id === currentJob.company_id)?.name ?? "",
+    department: currentJob.department ?? "", location: currentJob.location ?? "", category: currentJob.category ?? "",
+    salaryMin: currentJob.salary_min?.toString() ?? "", salaryMax: currentJob.salary_max?.toString() ?? "",
+  } : EMPTY_JOB_FIELDS);
+  const channel = manualChannel ?? channelFromSource(draft?.sourceUrl);
+  const channels = useMemo(() => channelOptions(applications), [applications]);
+  const selectedChannel = channels.find((c) => norm(c) === norm(channel)) ?? channel;
+  // Keep successful writes on a retry even if refreshing the parent lists failed.
+  const savedJob = useRef(currentJob);
+  const createdCompany = useRef<Company | null>(null);
   const [showSnapshots, setShowSnapshots] = useState(false);
   // 快照先于投递保存；投递若保存失败后重试，不能把同一份快照再存一遍
   const snapshotSavedFor = useRef<number | null>(null);
@@ -80,38 +83,14 @@ export default function ApplicationModal({ state, stages, companies, jobs, onClo
   };
   const modal = useModalFocus(close);
 
-  const companyJobs = useMemo(
-    () => jobs.filter((j) => j.company_id === (companyId === "" ? -1 : companyId)),
-    [jobs, companyId],
-  );
   const selectedCompany = companies.find((c) => c.id === companyId);
-  const currentJob = jobs.find((j) => j.id === jobId);
   const categories = useMemo(() => categoryOptions(jobs), [jobs]);
-
-  // 选中已有岗位时，部门 / 城市 / 分类可以直接在这里改，保存投递时一并更新岗位。
-  const [jobEdit, setJobEdit] = useState(() => ({ for: jobId, ...jobInfo(currentJob) }));
-  if (jobEdit.for !== jobId) setJobEdit({ for: jobId, ...jobInfo(currentJob) });
-  const setJobEditField = (key: "department" | "location" | "category", value: string) =>
-    setJobEdit((prev) => ({ ...prev, [key]: value }));
 
   const setField = (key: keyof JobFields, value: string) =>
     setFields((prev) => ({ ...prev, [key]: value }));
 
-  // 识别出的公司 / 岗位已存在就直接选中，快照会追加到已有岗位上
-  const matchExisting = (detected: JobFields) => {
-    const knownCompany = detected.companyName
-      ? companies.find((c) => norm(c.name) === norm(detected.companyName))
-      : undefined;
-    if (knownCompany) {
-      setCompanyId(knownCompany.id);
-      const knownJob = detected.title
-        ? jobs.find((j) => j.company_id === knownCompany.id && norm(j.title) === norm(detected.title))
-        : undefined;
-      setJobId(knownJob ? knownJob.id : "");
-    } else if (detected.companyName) {
-      setCompanyId("");
-      setJobId("");
-    }
+  const matchCompany = (name: string) => {
+    if (name.trim()) setCompanyId(companies.find((c) => norm(c.name) === norm(name))?.id ?? "");
   };
 
   const handleCaptured = (next: SnapshotDraft, detected: JobFields) => {
@@ -119,16 +98,15 @@ export default function ApplicationModal({ state, stages, companies, jobs, onClo
     setDraft(next);
     setFields(detected);
     snapshotSavedFor.current = null;
-    matchExisting(detected);
-    if (!channel) setChannel("官网");
+    matchCompany(detected.companyName);
   };
 
   // AI 提取要等好几秒，期间用户可能还在填表。回调里必须读最新的值，
   // 不能用发起请求那一刻闭包里的旧值，否则会把刚填的内容覆盖掉。
   const fieldsRef = useRef(fields);
   fieldsRef.current = fields;
-  const jobIdRef = useRef(jobId);
-  jobIdRef.current = jobId;
+  const companyIdRef = useRef(companyId);
+  companyIdRef.current = companyId;
 
   /** AI 结果只填用户还空着的字段，不覆盖已经手动填好的内容。 */
   const handleExtracted = (detected: JobFields) => {
@@ -137,7 +115,7 @@ export default function ApplicationModal({ state, stages, companies, jobs, onClo
       if (!merged[key].trim() && detected[key]) merged[key] = detected[key];
     }
     setFields(merged);
-    if (jobIdRef.current === "") matchExisting(merged);
+    if (companyIdRef.current === "") matchCompany(merged.companyName);
   };
 
   const toSalary = (value: string, name: string): number | null => {
@@ -148,12 +126,10 @@ export default function ApplicationModal({ state, stages, companies, jobs, onClo
     return n;
   };
 
-  /** 选了已有岗位就用它；否则按表单新建公司 / 岗位。 */
+  /** Each new application gets the posting captured in this form, even if titles coincide. */
   const resolveJobId = async (): Promise<number> => {
-    if (jobId !== "") return Number(jobId);
-    if (state.mode === "edit") throw new Error(t("请选择公司与岗位"));
     const title = fields.title.trim();
-    if (!title) throw new Error(t("请选择已有岗位，或填写新岗位名称"));
+    if (!title) throw new Error(t("请填写岗位名称"));
     // 先校验完所有输入再写库，免得公司建好了、岗位因为薪资格式不对建失败，留下孤儿公司
     const salaryMin = toSalary(fields.salaryMin, t("薪资下限"));
     const salaryMax = toSalary(fields.salaryMax, t("薪资上限"));
@@ -161,27 +137,34 @@ export default function ApplicationModal({ state, stages, companies, jobs, onClo
       throw new Error(t("薪资下限不能高于上限"));
     }
     let company: Company | undefined = selectedCompany
-      ?? companies.find((c) => norm(c.name) === norm(fields.companyName));
+      ?? companies.find((c) => norm(c.name) === norm(fields.companyName))
+      ?? (createdCompany.current && norm(createdCompany.current.name) === norm(fields.companyName) ? createdCompany.current : undefined);
     if (!company) {
       if (!fields.companyName.trim()) throw new Error(t("请选择公司，或填写公司名称"));
       company = await createCompany({ name: fields.companyName.trim() });
-      setCompanyId(company.id);
+      createdCompany.current = company;
     }
-    const existing = jobs.find((j) => j.company_id === company!.id && norm(j.title) === norm(title));
-    if (existing) return existing.id;
-    const job = await createJob({
+    const before = savedJob.current;
+    const payload = {
       companyId: company.id,
       title,
       department: fields.department.trim() || null,
       location: fields.location.trim() || null,
       category: fields.category.trim() || null,
-      jdUrl: draft?.sourceUrl ?? null,
-      jdText: null,
+      jdUrl: app ? currentJob?.jd_url ?? null : draft?.sourceUrl ?? null,
+      jdText: currentJob?.jd_text ?? null,
       salaryMin,
       salaryMax,
-    });
-    setJobId(job.id);
-    return job.id;
+    };
+    if (!before) {
+      savedJob.current = await createJob({ ...payload, allowSameTitle: true });
+    } else if (before.company_id !== company.id || before.title !== title ||
+      before.department !== payload.department || before.location !== payload.location ||
+      before.category !== payload.category || before.salary_min !== salaryMin ||
+      before.salary_max !== salaryMax || before.jd_url !== payload.jdUrl) {
+      savedJob.current = await updateJob(before.id, payload);
+    }
+    return savedJob.current!.id;
   };
 
   const handleSubmit = async () => {
@@ -195,35 +178,13 @@ export default function ApplicationModal({ state, stages, companies, jobs, onClo
     setError("");
     try {
       const resolvedJobId = await resolveJobId();
-      if (currentJob && currentJob.id === resolvedJobId) {
-        const next = {
-          department: jobEdit.department.trim(),
-          location: jobEdit.location.trim(),
-          category: jobEdit.category.trim(),
-        };
-        const before = jobInfo(currentJob);
-        if (next.department !== before.department || next.location !== before.location || next.category !== before.category) {
-          // update_job 会整行覆盖，其余字段原样带上
-          await updateJob(currentJob.id, {
-            companyId: currentJob.company_id,
-            title: currentJob.title,
-            department: next.department || null,
-            location: next.location || null,
-            category: next.category || null,
-            jdUrl: currentJob.jd_url,
-            jdText: currentJob.jd_text,
-            salaryMin: currentJob.salary_min,
-            salaryMax: currentJob.salary_max,
-          });
-        }
-      }
       if (draft && snapshotSavedFor.current !== resolvedJobId) {
         await saveJobSnapshot(resolvedJobId, draft);
         snapshotSavedFor.current = resolvedJobId;
       }
       const payload = {
         jobId: resolvedJobId,
-        channel: channel || null,
+        channel: channel.trim() || null,
         resumeVersion: resumeVersion || null,
         stageId,
         status,
@@ -249,8 +210,6 @@ export default function ApplicationModal({ state, stages, companies, jobs, onClo
     finally { setSaving(false); }
   };
 
-  const needsNewJob = state.mode === "create" && jobId === "";
-
   return (
     <>
       <div className="fixed inset-0 bg-scrim flex items-center justify-center z-20 p-4">
@@ -271,74 +230,51 @@ export default function ApplicationModal({ state, stages, companies, jobs, onClo
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className={label}>{t("公司")}</label>
+              <label className={label} htmlFor="application-company">{t("公司")}</label>
               <select
+                id="application-company"
                 className={field}
                 value={companyId}
                 onChange={(e) => {
                   setCompanyId(e.target.value === "" ? "" : Number(e.target.value));
-                  setJobId("");
+                  setField("companyName", "");
                 }}
               >
-                <option value="">{state.mode === "create" ? t("新公司（在下方填写）") : t("选择公司")}</option>
+                <option value="">{t("新公司（在下方填写）")}</option>
                 {companies.map((c) => (
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
               </select>
+              {!selectedCompany && (
+                <input className={`${field} mt-2`} value={fields.companyName} onChange={(e) => setField("companyName", e.target.value)} aria-label={t("公司名称 *")} placeholder={t("公司名称 *")} />
+              )}
             </div>
             <div>
-              <label className={label}>{t("岗位")}</label>
-              <select
-                className={field}
-                value={jobId}
-                onChange={(e) => setJobId(e.target.value === "" ? "" : Number(e.target.value))}
-              >
-                <option value="">{state.mode === "create" ? t("新岗位（在下方填写）") : t("选择岗位")}</option>
-                {companyJobs.map((j) => (
-                  <option key={j.id} value={j.id}>{j.title}</option>
-                ))}
-              </select>
+              <label className={label} htmlFor="application-title">{t("岗位")}</label>
+              <input id="application-title" autoComplete="off" className={field} value={fields.title} onChange={(e) => setField("title", e.target.value)} placeholder={t("岗位名称 *")} />
             </div>
           </div>
 
-          {needsNewJob && (
-            <div className="mt-3 rounded-lg border border-neutral-200 bg-neutral-50 p-3">
-              <div className="text-xs font-medium text-neutral-500 mb-2">{t("新岗位信息（保存时创建）")}</div>
-              <div className="grid grid-cols-2 gap-2">
-                {selectedCompany ? (
-                  <div className="flex items-center text-sm text-neutral-600 px-1">{selectedCompany.name}</div>
-                ) : (
-                  <input className={field} value={fields.companyName} onChange={(e) => setField("companyName", e.target.value)} placeholder={t("公司名称 *")} />
-                )}
-                <input className={field} value={fields.title} onChange={(e) => setField("title", e.target.value)} placeholder={t("岗位名称 *")} />
-                <input className={field} value={fields.department} onChange={(e) => setField("department", e.target.value)} placeholder={t("部门（可选）")} />
-                <input className={field} value={fields.location} onChange={(e) => setField("location", e.target.value)} placeholder={t("城市（可选）")} />
-                <CategoryInput className={field} value={fields.category} onChange={(v) => setField("category", v)} options={categories} />
-                <div className="flex gap-2">
-                  <input className={field} inputMode="numeric" value={fields.salaryMin} onChange={(e) => setField("salaryMin", e.target.value)} placeholder={t("薪资下限 k")} />
-                  <input className={field} inputMode="numeric" value={fields.salaryMax} onChange={(e) => setField("salaryMax", e.target.value)} placeholder={t("薪资上限 k")} />
-                </div>
-              </div>
-            </div>
-          )}
-          {currentJob && (
-            <div className="mt-3 rounded-lg border border-neutral-200 bg-neutral-50 p-3">
+          <div className="mt-3 rounded-lg border border-neutral-200 bg-neutral-50 p-3">
+            {currentJob && applications.some((a) => a.id !== app?.id && a.job_id === currentJob.id) && (
               <div className="text-xs font-medium text-neutral-500 mb-2">{t("岗位信息（保存时更新，同一岗位的投递共用）")}</div>
-              <div className="grid grid-cols-2 gap-2">
-                <input className={field} value={jobEdit.department} onChange={(e) => setJobEditField("department", e.target.value)} placeholder={t("部门（可选）")} aria-label={t("部门（可选）")} />
-                <input className={field} value={jobEdit.location} onChange={(e) => setJobEditField("location", e.target.value)} placeholder={t("城市（可选）")} aria-label={t("城市（可选）")} />
-                <CategoryInput className={field} value={jobEdit.category} onChange={(v) => setJobEditField("category", v)} options={categories} />
+            )}
+            <div className="grid grid-cols-2 gap-2">
+              <input className={field} value={fields.department} onChange={(e) => setField("department", e.target.value)} placeholder={t("部门（可选）")} />
+              <input className={field} value={fields.location} onChange={(e) => setField("location", e.target.value)} placeholder={t("城市（可选）")} />
+              <CategoryInput className={field} value={fields.category} onChange={(v) => setField("category", v)} options={categories} />
+              <div className="flex gap-2">
+                <input className={field} inputMode="numeric" value={fields.salaryMin} onChange={(e) => setField("salaryMin", e.target.value)} placeholder={t("薪资下限 k")} />
+                <input className={field} inputMode="numeric" value={fields.salaryMax} onChange={(e) => setField("salaryMax", e.target.value)} placeholder={t("薪资上限 k")} />
               </div>
             </div>
-          )}
-          {state.mode === "create" && jobId !== "" && draft && (
-            <p className="mt-2 text-xs text-neutral-500">{t("已匹配到现有岗位，快照会追加到该岗位的快照记录里。")}</p>
-          )}
+          </div>
 
           <div className="grid grid-cols-2 gap-4 mt-4">
             <div>
-              <label className={label}>{t("投递渠道")}</label>
-              <input className={field} value={channel} onChange={(e) => setChannel(e.target.value)} placeholder={t("如 Boss直聘 / 官网")} />
+              <label className={label} htmlFor="application-channel">{t("投递渠道")}</label>
+              <CustomSelect id="application-channel" className={field} label="投递渠道" prompt="选择渠道"
+                placeholder="输入投递渠道" value={selectedChannel} onChange={setChannel} options={channels} />
             </div>
             <div>
               <label className={label}>{t("简历版本")}</label>

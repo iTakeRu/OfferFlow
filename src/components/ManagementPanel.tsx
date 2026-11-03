@@ -5,7 +5,7 @@ import {
   saveJobSnapshot, discardSnapshotDraft,
 } from "../api";
 import { categoryOptions } from "../types";
-import CategoryInput from "./CategoryInput";
+import { CategoryInput } from "./CustomSelect";
 import type { Stage, Company, Job, JobFields, SnapshotDraft } from "../types";
 import { useI18n } from "../i18n";
 import { confirm as askConfirm } from "@tauri-apps/plugin-dialog";

@@ -4,15 +4,19 @@ import { useI18n } from "../i18n";
 interface Props {
   value: string;
   onChange: (value: string) => void;
-  /** 下拉里的候选：默认分类加已经用过的自定义分类，见 `categoryOptions`。 */
   options: string[];
   className: string;
 }
 
 const CUSTOM = "\u0000custom";
 
-/** 岗位分类：从列表选，或切换成文本框自己填。 */
-export default function CategoryInput({ value, onChange, options, className }: Props) {
+export function CategoryInput(props: Props) {
+  return <CustomSelect {...props} label="岗位分类" prompt="选择分类" placeholder="输入自定义分类" maxLength={20} />;
+}
+
+export function CustomSelect({ value, onChange, options, className, id, label, prompt, placeholder, maxLength }: Props & {
+  id?: string; label: string; prompt: string; placeholder: string; maxLength?: number;
+}) {
   const { t } = useI18n();
   const [typing, setTyping] = useState(false);
   // 外部填进来的值（比如抓取识别到的「营销类」）不在列表里时，也直接显示成文本框。
@@ -22,11 +26,12 @@ export default function CategoryInput({ value, onChange, options, className }: P
         <input
           className={className}
           autoFocus={typing}
-          maxLength={20}
+          id={id}
+          maxLength={maxLength}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          placeholder={t("输入自定义分类")}
-          aria-label={t("岗位分类")}
+          placeholder={t(placeholder)}
+          aria-label={t(label)}
         />
         <button
           type="button"
@@ -44,7 +49,8 @@ export default function CategoryInput({ value, onChange, options, className }: P
   return (
     <select
       className={className}
-      aria-label={t("岗位分类")}
+      id={id}
+      aria-label={t(label)}
       value={value}
       onChange={(e) => {
         if (e.target.value === CUSTOM) {
@@ -55,7 +61,7 @@ export default function CategoryInput({ value, onChange, options, className }: P
         }
       }}
     >
-      <option value="">{t("选择分类")}</option>
+      <option value="">{t(prompt)}</option>
       {options.map((c) => <option key={c} value={c}>{t(c)}</option>)}
       <option value={CUSTOM}>{t("自定义…")}</option>
     </select>
