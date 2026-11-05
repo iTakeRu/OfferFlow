@@ -32,13 +32,13 @@
 
 ## 安装
 
-[下载最新版本](https://github.com/iTakeRu/OfferFlow/releases/latest)。v1.0.1 提供以下四个发布文件，前三项任选其一；`SHA256SUMS.txt` 用于校验下载文件。源码构建方式见下方「开发」。
+[下载最新版本](https://github.com/iTakeRu/OfferFlow/releases/latest)。v1.0.2 提供以下四个发布文件，前三项任选其一；`SHA256SUMS.txt` 用于校验下载文件。源码构建方式见下方「开发」。
 
 | 发布文件 | 说明 |
 |---|---|
-| `OfferFlow_1.0.1_x64-setup.exe` | NSIS 安装包 |
-| `OfferFlow_1.0.1_x64_en-US.msi` | MSI 安装包 |
-| `OfferFlow_1.0.1_x64.exe` | 免安装程序，下载后直接运行，无需改名 |
+| `OfferFlow_1.0.2_x64-setup.exe` | NSIS 安装包 |
+| `OfferFlow_1.0.2_x64_en-US.msi` | MSI 安装包 |
+| `OfferFlow_1.0.2_x64.exe` | 免安装程序，下载后直接运行，无需改名 |
 | `SHA256SUMS.txt` | 上述三个文件的 SHA-256 校验值 |
 
 **运行环境**
@@ -49,7 +49,7 @@
 **首次运行提示**：程序暂未进行代码签名，Windows SmartScreen 可能提示「Windows 已保护你的电脑」，点击「更多信息 → 仍要运行」即可。如需确认下载文件未被篡改，可与发布页的 `SHA256SUMS.txt` 对照：
 
 ```powershell
-certutil -hashfile OfferFlow_1.0.1_x64-setup.exe SHA256
+certutil -hashfile OfferFlow_1.0.2_x64-setup.exe SHA256
 ```
 
 **检查更新**：「系统设置 → 关于 OfferFlow」显示当前版本，可手动检查更新并打开发布页面下载。更新检测只读取 GitHub 正式版信息，下载和安装由用户自行完成。
@@ -97,7 +97,7 @@ npm run tauri build    # 构建 exe 与安装包
 
 | 文件 | 说明 |
 |---|---|
-| `offerflow.exe` | 本地构建的可执行文件，发布时命名为 `OfferFlow_1.0.1_x64.exe` |
+| `offerflow.exe` | 本地构建的可执行文件，发布时命名为 `OfferFlow_1.0.2_x64.exe` |
 | `bundle/nsis/*-setup.exe` | NSIS 安装包 |
 | `bundle/msi/*.msi` | MSI 安装包 |
 

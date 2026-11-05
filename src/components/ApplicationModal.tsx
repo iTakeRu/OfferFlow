@@ -10,6 +10,7 @@ import ActivityTimeline from "./ActivityTimeline";
 import { CategoryInput, CustomSelect } from "./CustomSelect";
 import SnapshotCapture from "./SnapshotCapture";
 import SnapshotViewer from "./SnapshotViewer";
+import JdTextEditor from "./JdTextEditor";
 import { confirm as askConfirm } from "@tauri-apps/plugin-dialog";
 import { useModalFocus } from "../useModalFocus";
 import { channelFromSource, channelOptions, createApplicationSaver } from "../applicationSave";
@@ -221,9 +222,8 @@ export default function ApplicationModal({ state, stages, companies, jobs, appli
               <label className={label}>{t("JD 快照（可选）")}</label>
               <SnapshotCapture onCaptured={handleCaptured} onExtracted={handleExtracted} />
               {draft && (
-                <p className="mt-1 text-xs text-neutral-400">
-                  {t("快照共 {n} 字，保存投递时会一并存档", { n: draft.text.length })}
-                </p>
+                <JdTextEditor value={draft.editedText ?? draft.text} disabled={saving || snapshotSavedFor.current !== null}
+                  onChange={(editedText) => setDraft({ ...draft, editedText })} />
               )}
             </div>
           )}
@@ -334,7 +334,7 @@ export default function ApplicationModal({ state, stages, companies, jobs, appli
               </button>
               <button
                 onClick={handleSubmit}
-                disabled={saving}
+                disabled={saving || (draft !== null && !(draft.editedText ?? draft.text).trim())}
                 className="px-4 py-2 text-sm rounded-md bg-navy text-on-navy hover:bg-navy-deep disabled:opacity-50"
               >
                 {saving ? t("保存中…") : t("保存")}

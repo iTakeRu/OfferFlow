@@ -32,13 +32,13 @@ A Windows desktop app for managing your job search: track applications, archive 
 
 ## Installation
 
-[Download the latest release](https://github.com/iTakeRu/OfferFlow/releases/latest). v1.0.1 provides the four files below. Choose one of the first three; `SHA256SUMS.txt` is for verifying downloads. See Development below to build from source.
+[Download the latest release](https://github.com/iTakeRu/OfferFlow/releases/latest). v1.0.2 provides the four files below. Choose one of the first three; `SHA256SUMS.txt` is for verifying downloads. See Development below to build from source.
 
 | Release file | Description |
 |---|---|
-| `OfferFlow_1.0.1_x64-setup.exe` | NSIS installer |
-| `OfferFlow_1.0.1_x64_en-US.msi` | MSI installer |
-| `OfferFlow_1.0.1_x64.exe` | Standalone executable; run it directly without renaming |
+| `OfferFlow_1.0.2_x64-setup.exe` | NSIS installer |
+| `OfferFlow_1.0.2_x64_en-US.msi` | MSI installer |
+| `OfferFlow_1.0.2_x64.exe` | Standalone executable; run it directly without renaming |
 | `SHA256SUMS.txt` | SHA-256 checksums for the three files above |
 
 **Requirements**
@@ -49,7 +49,7 @@ A Windows desktop app for managing your job search: track applications, archive 
 **First launch**: The app is not code-signed yet, so Windows SmartScreen may show "Windows protected your PC". Click "More info → Run anyway" to continue. To verify a download, compare its hash with `SHA256SUMS.txt` on the release page:
 
 ```powershell
-certutil -hashfile OfferFlow_1.0.1_x64-setup.exe SHA256
+certutil -hashfile OfferFlow_1.0.2_x64-setup.exe SHA256
 ```
 
 **Updates**: Settings → About OfferFlow shows the current version and offers a manual update check and a link to download releases. It only reads GitHub stable release information; downloading and installing are up to you.
@@ -97,7 +97,7 @@ Build outputs are placed in `src-tauri/target/release/`:
 
 | File | Description |
 |---|---|
-| `offerflow.exe` | Locally built executable, named `OfferFlow_1.0.1_x64.exe` in the release |
+| `offerflow.exe` | Locally built executable, named `OfferFlow_1.0.2_x64.exe` in the release |
 | `bundle/nsis/*-setup.exe` | NSIS installer |
 | `bundle/msi/*.msi` | MSI installer |
 

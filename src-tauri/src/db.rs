@@ -164,6 +164,10 @@ CREATE TABLE IF NOT EXISTS job_snapshots (
   captured_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
 CREATE INDEX IF NOT EXISTS idx_jobs_company ON jobs(company_id);
+CREATE TABLE IF NOT EXISTS job_snapshot_edits (
+  snapshot_id INTEGER PRIMARY KEY REFERENCES job_snapshots(id) ON DELETE CASCADE,
+  text TEXT NOT NULL
+);
 CREATE INDEX IF NOT EXISTS idx_job_snapshots_job ON job_snapshots(job_id, id DESC);
 CREATE INDEX IF NOT EXISTS idx_applications_job ON applications(job_id);
 CREATE INDEX IF NOT EXISTS idx_applications_stage ON applications(stage_id);
@@ -184,6 +188,8 @@ const DEFAULT_STAGES: [&str; 7] = [
     "Offer",
 ];
 /// 1：初始版本；2：JD 快照；3：可复制的经历及独立版本。
+// The optional snapshot edits table is additive. Older v4 clients can still read
+// the archived originals, so opening this database does not require an upgrade.
 pub const SCHEMA_VERSION: i64 = 4;
 
 fn writable_dir(path: &Path) -> bool {

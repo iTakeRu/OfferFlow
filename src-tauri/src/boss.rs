@@ -101,17 +101,31 @@ pub(crate) fn from_text(text: &str) -> Option<JobDetail> {
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .collect();
-    let mut sections = lines.iter().enumerate().filter(|(_, l)| heading(l));
-    let (index, _) = sections.next()?;
-    if sections.next().is_some() {
-        return None;
+    let mut selected = None;
+    let mut header_start = 0;
+    for (index, _) in lines.iter().enumerate().filter(|(_, line)| heading(line)) {
+        let header = &lines[header_start.max(index.saturating_sub(24))..index];
+        header_start = index + 1;
+        // Recruiters often repeat the page's heading inside their description.
+        // A second detail needs its own job header between the two headings.
+        if let Some(job) = detail_after_header(header, &lines[index + 1..]) {
+            if selected.is_some() {
+                return None;
+            }
+            selected = Some(job);
+        }
     }
-    let header = &lines[index.saturating_sub(24)..index];
+    selected
+}
+
+fn detail_after_header(header: &[&str], description: &[&str]) -> Option<JobDetail> {
     let (pos, line, pay) = header.iter().enumerate().rev().find_map(|(i, line)| {
         let line = line
             .split("感兴趣")
             .next()?
             .split("立即沟通")
+            .next()?
+            .split("继续沟通")
             .next()?
             .trim();
         Some((i, line, PAY.find(line)?))
@@ -124,7 +138,7 @@ pub(crate) fn from_text(text: &str) -> Option<JobDetail> {
         return None;
     }
     let meta = header[pos + 1..].join("\n");
-    let (body, company) = description_body(&lines[index + 1..]);
+    let (body, company) = description_body(description);
     if body.is_empty() {
         return None;
     }
@@ -394,6 +408,34 @@ mod tests {
             .unwrap();
         assert_eq!((job.salary_min, job.salary_max), (None, None));
         assert!(job.jd_text.unwrap().contains("200-300元/天"));
+    }
+
+    #[test]
+    fn repeated_description_headings_are_one_job() {
+        let summary = "产品运营（示例项目）\n12-24K·13薪\n杭州 2-4年 本科";
+        for repeated in ["职位描述：", "岗位描述:", "职位描述\n岗位描述："] {
+            let body =
+                format!("{repeated}\n1、整理需求，跟进版本上线。\n职位要求：\n1、具备沟通能力。");
+            let page = format!("招聘中\n{summary}\n感兴趣\n继续沟通\n职位描述\n{body}\n甲专员\n刚刚活跃\n示例科技 · HR\n工作地址");
+            let job = from_text(&page).expect("Repeated headings belong to the same job");
+            assert_eq!(job.title, "产品运营（示例项目）");
+            assert_eq!(job.company, "示例科技");
+            assert_eq!(job.location.as_deref(), Some("杭州"));
+            assert_eq!((job.salary_min, job.salary_max), (Some(12), Some(24)));
+            assert_eq!(
+                job.jd_text.as_deref(),
+                Some(format!("{summary}\n\n{body}").as_str())
+            );
+            let draft = capture_snapshot_from_text(page, Some(URL.into())).unwrap();
+            assert_eq!(draft.detail.unwrap().company, "示例科技");
+        }
+    }
+
+    #[test]
+    fn two_distinct_job_details_remain_ambiguous() {
+        let page = "产品运营\n12-24K\n杭州 2-4年 本科\n职位描述\n整理需求。\n\
+            数据分析\n10-18K\n上海 1-3年 本科\n职位描述：\n制作报表。";
+        assert!(from_text(page).is_none());
     }
 
     #[test]

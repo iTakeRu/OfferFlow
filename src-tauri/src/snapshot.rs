@@ -422,7 +422,9 @@ fn row_snapshot(r: &Row) -> rusqlite::Result<JobSnapshot> {
         html_path: r.get(5)?,
         captured_at: r.get(6)?,
     };
-    if snapshot.source_kind == "url"
+    if let Some(edited) = r.get::<_, Option<String>>(7)? {
+        snapshot.text = edited;
+    } else if snapshot.source_kind == "url"
         && snapshot.html_path.is_none()
         && snapshot
             .source_url
@@ -434,7 +436,29 @@ fn row_snapshot(r: &Row) -> rusqlite::Result<JobSnapshot> {
     Ok(snapshot)
 }
 
-const SNAPSHOT_COLUMNS: &str = "id, job_id, source_url, source_kind, text, html_path, captured_at";
+const SNAPSHOT_COLUMNS: &str = "id, job_id, source_url, source_kind, text, html_path, captured_at,
+    (SELECT text FROM job_snapshot_edits WHERE snapshot_id = job_snapshots.id)";
+
+fn write_snapshot_edit(conn: &rusqlite::Connection, id: i64, text: &str) -> Result<(), String> {
+    if text.trim().is_empty() {
+        return Err("JD 内容不能为空".into());
+    }
+    if text.chars().count() > MAX_TEXT_CHARS {
+        return Err("JD 内容过长".into());
+    }
+    conn.execute(
+        "INSERT INTO job_snapshot_edits (snapshot_id, text) VALUES (?1, ?2)
+         ON CONFLICT(snapshot_id) DO UPDATE SET text = excluded.text",
+        params![id, text],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn update_job_snapshot_text(state: State<Db>, id: i64, text: String) -> Result<(), String> {
+    write_snapshot_edit(&state.0.lock(), id, &text)
+}
 
 #[tauri::command(async)]
 pub fn save_job_snapshot(
@@ -444,6 +468,7 @@ pub fn save_job_snapshot(
     source_kind: String,
     text: String,
     token: Option<String>,
+    edited_text: Option<String>,
 ) -> Result<JobSnapshot, String> {
     if !["url", "file", "paste"].contains(&source_kind.as_str()) {
         return Err("快照来源无效".to_string());
@@ -481,6 +506,9 @@ pub fn save_job_snapshot(
         }
     })?;
     let id = tx.last_insert_rowid();
+    if let Some(edited) = edited_text {
+        write_snapshot_edit(&tx, id, &edited)?;
+    }
     let mut moved: Option<PathBuf> = None;
     if let Some(pending) = pending {
         let dir = snapshots_dir().join(job_id.to_string());
@@ -550,6 +578,42 @@ mod tests {
     use super::*;
 
     #[test]
+    fn edited_jd_reopens_verbatim_and_keeps_the_archived_source() {
+        let conn = crate::db::init(std::path::Path::new(":memory:")).unwrap();
+        conn.execute_batch(
+            "INSERT INTO companies(id, name) VALUES(1, 'Example');
+             INSERT INTO jobs(id, company_id, title) VALUES(1, 1, 'Role');
+             INSERT INTO job_snapshots(id, job_id, source_url, source_kind, text)
+             VALUES(1, 1, 'https://www.zhipin.com/job_detail/a', 'url', 'Original');",
+        )
+        .unwrap();
+        let edited = "【岗位职责】\n第一行\n第二行";
+        write_snapshot_edit(&conn, 1, "First draft").unwrap();
+        write_snapshot_edit(&conn, 1, edited).unwrap();
+        assert!(write_snapshot_edit(&conn, 1, "  ").is_err());
+        let saved = conn
+            .query_row(
+                &format!("SELECT {SNAPSHOT_COLUMNS} FROM job_snapshots WHERE id=1"),
+                [],
+                row_snapshot,
+            )
+            .unwrap();
+        assert_eq!(saved.text, edited);
+        let original: String = conn
+            .query_row("SELECT text FROM job_snapshots WHERE id=1", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(original, "Original");
+        conn.execute("DELETE FROM job_snapshots WHERE id=1", [])
+            .unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM job_snapshot_edits", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
     fn reopens_accessibility_snapshot_with_intact_headings_and_paragraphs() {
         let raw = "产品运营（示例项目）\n12-24K·13薪\n杭州 2-4年 本科\n\n【关于我\n们】\nExample Project（测试\n项目说明）提供操作手\n册，便于阅读。\n每季度更新文档。\n【岗位职责】\n1. 推进运营项目\n2. 分析数据";
         let expected = raw
@@ -575,7 +639,7 @@ mod tests {
         ] {
             let snap = db
                 .query_row(
-                    "SELECT 5, 1, ?1, ?2, ?3, ?4, '2026-11-03'",
+                    "SELECT 5, 1, ?1, ?2, ?3, ?4, '2026-11-03', NULL",
                     params![url, kind, raw, html],
                     row_snapshot,
                 )

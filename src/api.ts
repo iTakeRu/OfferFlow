@@ -131,10 +131,13 @@ export const saveJobSnapshot = (jobId: number, d: SnapshotDraft) =>
     sourceUrl: d.sourceUrl,
     sourceKind: d.sourceKind,
     text: d.text,
+    editedText: d.editedText ?? null,
     token: d.token,
   });
 export const listJobSnapshots = (jobId: number) =>
   invoke<JobSnapshot[]>("list_job_snapshots", { jobId });
+export const updateJobSnapshotText = (id: number, text: string) =>
+  invoke<void>("update_job_snapshot_text", { id, text });
 export const deleteJobSnapshot = (id: number) => invoke<void>("delete_job_snapshot", { id });
 
 // ---------- Resume ----------

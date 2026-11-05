@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.0.2 — 2026-11-05
+
+- JD 正文支持编辑。抓取后可在保存投递或岗位前修改，已保存的快照可通过「编辑」更新正文。
+- 保存后的正文修改会在重新打开时保留，网页原件仍可查看。
+- 修复 BOSS 直聘页面中重复出现「职位描述」或「岗位描述」时抓取失败的问题，继续识别多个不同岗位同时出现的情况。
+
+### English
+
+- Edit captured job descriptions before saving an application or job, and update the text of existing snapshots.
+- Saved edits persist when reopening a snapshot. Archived web pages remain available.
+- Fixed capture failures caused by repeated description headings on BOSS Zhipin pages, while retaining checks for multiple distinct job postings.
+
 ## v1.0.1 — 2026-11-03
 
 - Windows 上可以从已打开的 Chrome 一键保存 BOSS 直聘职位，识别公司、岗位、城市和月薪。快照保留职责、要求和薪数，自动排除排名和推荐内容。

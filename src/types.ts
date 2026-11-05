@@ -143,6 +143,7 @@ export interface JobDetail {
 
 /** 抓取到但尚未保存的 JD 快照。 */
 export interface SnapshotDraft {
+  editedText?: string;
   token: string | null;
   sourceUrl: string | null;
   sourceKind: "url" | "file" | "paste";
@@ -152,7 +153,7 @@ export interface SnapshotDraft {
   detailSource: "structured" | "site" | "page" | null;
 }
 
-/** 已保存的 JD 快照（保存后不再修改）。 */
+/** 已保存的 JD 快照，text 包含最近保存的正文修改。 */
 export interface JobSnapshot {
   id: number;
   job_id: number;

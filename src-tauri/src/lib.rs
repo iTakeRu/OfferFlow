@@ -111,6 +111,7 @@ fn start(db_state: Db, context: tauri::Context) {
             snapshot::capture_snapshot_from_text,
             snapshot::discard_snapshot_draft,
             snapshot::save_job_snapshot,
+            snapshot::update_job_snapshot_text,
             snapshot::list_job_snapshots,
             snapshot::delete_job_snapshot,
             protect::get_protect_settings,

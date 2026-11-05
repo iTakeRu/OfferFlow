@@ -2,12 +2,13 @@ import { useCallback, useEffect, useState } from "react";
 import { confirm as askConfirm } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
-  listJobSnapshots, deleteJobSnapshot, saveJobSnapshot, discardSnapshotDraft, openManagedPath,
+  listJobSnapshots, deleteJobSnapshot, saveJobSnapshot, updateJobSnapshotText, discardSnapshotDraft, openManagedPath,
 } from "../api";
 import type { JobSnapshot, SnapshotDraft } from "../types";
 import { useI18n } from "../i18n";
 import { useModalFocus } from "../useModalFocus";
 import SnapshotCapture from "./SnapshotCapture";
+import JdTextEditor from "./JdTextEditor";
 
 interface Props {
   jobId: number;
@@ -35,8 +36,10 @@ export default function SnapshotViewer({ jobId, jobTitle, companyName, onClose }
   const [saving, setSaving] = useState(false);
   const [expanded, setExpanded] = useState<number | null>(null);
   const [copied, setCopied] = useState<number | null>(null);
+  const [edit, setEdit] = useState<{ id: number; text: string } | null>(null);
 
   const close = () => {
+    if (saving) return;
     if (draft?.token) discardSnapshotDraft(draft.token).catch(() => {});
     onClose();
   };
@@ -87,6 +90,17 @@ export default function SnapshotViewer({ jobId, jobTitle, companyName, onClose }
       await load();
     });
 
+  const saveEdit = async () => {
+    if (!edit || saving) return;
+    setSaving(true);
+    await act(async () => {
+      await updateJobSnapshotText(edit.id, edit.text);
+      setSnapshots((list) => list.map((s) => s.id === edit.id ? { ...s, text: edit.text } : s));
+      setEdit(null);
+    });
+    setSaving(false);
+  };
+
   const copy = (s: JobSnapshot) =>
     act(async () => {
       await navigator.clipboard.writeText(s.text);
@@ -111,7 +125,7 @@ export default function SnapshotViewer({ jobId, jobTitle, companyName, onClose }
             <p className="text-sm text-neutral-500 truncate">{companyName || t("未知公司")} · {jobTitle || t("未知岗位")}</p>
           </div>
           <div className="flex gap-2 shrink-0">
-            {!adding && (
+            {!adding && !edit && (
               <button
                 onClick={() => setAdding(true)}
                 className="px-3 py-1.5 text-sm rounded-md bg-navy text-on-navy hover:bg-navy-deep"
@@ -131,9 +145,8 @@ export default function SnapshotViewer({ jobId, jobTitle, companyName, onClose }
               <SnapshotCapture skipExtraction onCaptured={handleCaptured} />
               {draft && (
                 <div className="space-y-2">
-                  <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap text-xs text-neutral-700 bg-white border border-neutral-200 rounded p-2">
-                    {draft.text}
-                  </pre>
+                  <JdTextEditor value={draft.editedText ?? draft.text} disabled={saving}
+                    onChange={(editedText) => setDraft({ ...draft, editedText })} />
                   <div className="flex justify-end gap-2">
                     <button
                       onClick={() => {
@@ -147,7 +160,7 @@ export default function SnapshotViewer({ jobId, jobTitle, companyName, onClose }
                     </button>
                     <button
                       onClick={saveDraft}
-                      disabled={saving}
+                      disabled={saving || !(draft.editedText ?? draft.text).trim()}
                       className="px-3 py-1.5 text-sm rounded-md bg-navy text-on-navy hover:bg-navy-deep disabled:opacity-50"
                     >
                       {saving ? t("保存中…") : t("保存快照")}
@@ -174,6 +187,7 @@ export default function SnapshotViewer({ jobId, jobTitle, companyName, onClose }
                       onClick={() => setExpanded(open ? null : s.id)}
                       className="text-sm font-medium text-left flex-1 min-w-0 truncate"
                       aria-expanded={open}
+                      disabled={edit !== null}
                     >
                       {open ? "▾ " : "▸ "}
                       {s.captured_at}
@@ -189,14 +203,28 @@ export default function SnapshotViewer({ jobId, jobTitle, companyName, onClose }
                         {t("打开网页原件")}
                       </button>
                     )}
-                    <button className={smallBtn} onClick={() => copy(s)}>
+                    <button className={smallBtn} disabled={edit?.id === s.id} onClick={() => copy(s)}>
                       {copied === s.id ? t("已复制") : t("复制文本")}
                     </button>
-                    <button className="text-xs text-red-500 hover:text-red-600 whitespace-nowrap" onClick={() => remove(s)}>
+                    {!edit && !adding && (
+                      <button className={smallBtn} onClick={() => {
+                        setExpanded(s.id);
+                        setEdit({ id: s.id, text: s.text });
+                      }}>{t("编辑")}</button>
+                    )}
+                    <button disabled={edit !== null} className="text-xs text-red-500 hover:text-red-600 whitespace-nowrap disabled:opacity-50" onClick={() => remove(s)}>
                       {t("删除")}
                     </button>
                   </div>
-                  {open && (
+                  {edit?.id === s.id ? (
+                    <div className="px-3 pb-2">
+                      <JdTextEditor value={edit.text} disabled={saving} onChange={(text) => setEdit({ id: s.id, text })} />
+                      <div className="flex justify-end gap-3">
+                        <button className={smallBtn} disabled={saving} onClick={() => setEdit(null)}>{t("取消")}</button>
+                        <button className={smallBtn} disabled={saving || !edit.text.trim()} onClick={saveEdit}>{t("保存")}</button>
+                      </div>
+                    </div>
+                  ) : open && (
                     <pre className="max-h-96 overflow-y-auto whitespace-pre-wrap break-words text-sm text-neutral-800 px-3 py-2 font-sans">
                       {s.text}
                     </pre>

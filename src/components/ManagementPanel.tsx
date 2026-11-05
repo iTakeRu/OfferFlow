@@ -12,6 +12,7 @@ import { confirm as askConfirm } from "@tauri-apps/plugin-dialog";
 import { useModalFocus } from "../useModalFocus";
 import SnapshotCapture from "./SnapshotCapture";
 import SnapshotViewer from "./SnapshotViewer";
+import JdTextEditor from "./JdTextEditor";
 
 interface Props {
   stages: Stage[];
@@ -325,9 +326,8 @@ export default function ManagementPanel({ stages, companies, jobs, onClose, onCh
                 <label className={label}>{t("JD 快照（可选）")}</label>
                 <SnapshotCapture key={captureKey} onCaptured={handleCaptured} onExtracted={applyFields} />
                 {jDraft && (
-                  <p className="mt-1 text-xs text-neutral-400">
-                    {t("快照共 {n} 字，添加岗位时会一并存档", { n: jDraft.text.length })}
-                  </p>
+                  <JdTextEditor value={jDraft.editedText ?? jDraft.text}
+                    onChange={(editedText) => setDraft({ ...jDraft, editedText })} />
                 )}
               </div>
 
@@ -365,7 +365,8 @@ export default function ManagementPanel({ stages, companies, jobs, onClose, onCh
               </div>
 
               <div className="flex justify-end">
-                <button onClick={addJob} className={`${btn} bg-navy text-on-navy hover:bg-navy-deep`}>{t("添加岗位")}</button>
+                <button onClick={addJob} disabled={jDraft !== null && !(jDraft.editedText ?? jDraft.text).trim()}
+                  className={`${btn} bg-navy text-on-navy hover:bg-navy-deep disabled:opacity-50`}>{t("添加岗位")}</button>
               </div>
 
               <div>
