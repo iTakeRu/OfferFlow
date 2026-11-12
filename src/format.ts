@@ -1,8 +1,8 @@
 /** 文件大小、时长等展示格式化。放在一处，免得各视图各写一套。 */
 
-/** datetime-local 的显示值；旧的纯日期记录仅在显示时补零点，未编辑时保留原值。 */
+/** datetime-local 显示到分钟；未编辑时保留原始存储值。 */
 export function interviewDateTimeValue(value: string): string {
-  return value.length === 10 ? `${value}T00:00` : value.replace(" ", "T");
+  return value.length === 10 ? `${value}T00:00` : value.replace(" ", "T").slice(0, 16);
 }
 
 export function formatSize(bytes: number): string {

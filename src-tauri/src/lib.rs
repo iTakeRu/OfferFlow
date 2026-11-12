@@ -6,6 +6,7 @@ mod commands;
 mod db;
 mod experiences;
 mod extract;
+mod feishu;
 mod html;
 mod job_page;
 mod models;
@@ -46,14 +47,24 @@ fn start(db_state: Db, context: tauri::Context) {
             // 清理过期回收站、同步镜像备份：放到后台，不拖慢启动
             let handle = app.handle().clone();
             std::thread::spawn(move || protect::run_startup_tasks(&handle.state::<Db>()));
+            feishu::start_auto_sync(app.handle().clone());
             Ok(())
         })
         .manage(db_state)
+        .manage(feishu::FeishuRuntime::default())
         // 注意：Tauri 2 里没标 async 的命令直接在主线程执行，期间窗口会冻住。
         // 凡是会访问网络、启动子进程或读写大文件的命令，都要写成
         // `#[tauri::command(async)]` 放到线程池里跑；只做一次 SQLite 查询的可以保持同步。
         .invoke_handler(tauri::generate_handler![
             updates::check_for_updates,
+            feishu::get_feishu_settings,
+            feishu::set_feishu_settings,
+            feishu::create_feishu_table,
+            feishu::list_feishu_tables,
+            feishu::bind_feishu_table,
+            feishu::get_feishu_status,
+            feishu::sync_feishu_now,
+            feishu::open_feishu_table,
             commands::list_stages,
             commands::create_stage,
             commands::update_stage,
@@ -127,6 +138,7 @@ fn start(db_state: Db, context: tauri::Context) {
         .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
                 use tauri::Manager;
+                feishu::stop(&app.state::<feishu::FeishuRuntime>());
                 app.state::<Db>().close_for_exit();
             }
         });

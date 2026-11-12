@@ -9,7 +9,17 @@ import type {
   Company, Job, Stage, Application, Interview, Attachment, AudioMark,
   ExtractSettings, ExtractedJob, OllamaStatus, Resume, UpcomingInterview, ActivityLog, ReviewNote,
   SnapshotDraft, JobSnapshot, ProtectSettings, MirrorReport, DataDirInfo,
+  FeishuSettings, FeishuReport, FeishuTables,
 } from "./types";
+
+export const getFeishuSettings = () => invoke<FeishuSettings>("get_feishu_settings");
+export const saveFeishuSettings = (settings: FeishuSettings) => invoke<void>("set_feishu_settings", { settings });
+export const createFeishuTable = (name: string, cliPath: string, profile: string, retry = false) => invoke<FeishuSettings>("create_feishu_table", { name, cliPath, profile, retry });
+export const listFeishuTables = (url: string, cliPath: string, profile: string) => invoke<FeishuTables>("list_feishu_tables", { url, cliPath, profile });
+export const bindFeishuTable = (url: string, tableId: string, cliPath: string, profile: string) => invoke<FeishuSettings>("bind_feishu_table", { url, tableId, cliPath, profile });
+export const getFeishuStatus = () => invoke<FeishuReport>("get_feishu_status");
+export const syncFeishuNow = () => invoke<FeishuReport>("sync_feishu_now");
+export const openFeishuTable = () => invoke<void>("open_feishu_table");
 
 // ---------- Stage ----------
 export const listStages = () => invoke<Stage[]>("list_stages");

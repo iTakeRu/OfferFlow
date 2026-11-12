@@ -288,7 +288,7 @@ export default function InterviewPanel({ app, jobTitle, companyName, onClose }: 
                         <label className={label}>{t("面试日期与时间")}</label>
                         <input
                           type="datetime-local"
-                          step="1"
+                          step="60"
                           className={field}
                           value={interviewDateTimeValue(d.scheduled_at)}
                           onChange={(e) => updateDraft(it.id, { scheduled_at: e.target.value })}

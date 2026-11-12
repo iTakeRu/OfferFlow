@@ -10,6 +10,7 @@ import { formatSize } from "../format";
 import { useI18n } from "../i18n";
 import { useModalFocus } from "../useModalFocus";
 import AboutPanel from "./AboutPanel";
+import FeishuSyncPanel from "./FeishuSyncPanel";
 
 interface Props {
   onClose: () => void;
@@ -174,6 +175,7 @@ export default function SettingsPanel({ onClose }: Props) {
           {msg && <div className="text-sm text-neutral-700 bg-neutral-100 rounded-md px-3 py-2">{msg}</div>}
 
           <AboutPanel />
+          <FeishuSyncPanel />
 
           {/* 抓取 */}
           <div>

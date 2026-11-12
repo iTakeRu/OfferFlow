@@ -23,6 +23,7 @@ A Windows desktop app for managing your job search: track applications, archive 
 - **Experience library**: Organize work, education, projects, and other experience; share basic information across multiple description versions and compare them, copy individual fields, import JSON, and include entries in full backups
 - **Data protection**: Deleted files go to a trash folder; optional incremental mirroring to another drive or a cloud-synced folder; automatic database copies before schema upgrades
 - **Export and backup**: Excel export and full backup and restore
+- **Feishu sync**: Create an application table or connect an existing Base from Settings, then sync manually or automatically. [CLI setup guide (Chinese)](docs/feishu-sync.md)
 
 <!-- Screenshots: uncomment after adding files to docs/screenshots/
 | Job snapshot | Interview review | Experience library |

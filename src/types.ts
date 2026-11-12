@@ -113,6 +113,31 @@ export interface MirrorReport {
   error: string | null;
 }
 
+export interface FeishuSettings {
+  autoSync: boolean;
+  cliPath: string;
+  profile: string;
+  baseToken: string;
+  tableId: string;
+  sourceId: string;
+  sourceDatabase: string;
+}
+
+export interface FeishuReport {
+  running: boolean;
+  finishedAt: number | null;
+  created: number;
+  updated: number;
+  unchanged: number;
+  error: string | null;
+}
+
+export interface FeishuTables {
+  baseToken: string;
+  selectedTableId: string | null;
+  tables: { id: string; name: string }[];
+}
+
 export interface OllamaStatus {
   installed: boolean;
   running: boolean;

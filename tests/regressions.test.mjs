@@ -53,9 +53,9 @@ test("a failed create can be retried and an existing application is only updated
   assert.deepEqual(updates, [42]);
 });
 
-test("interview input preserves hours, minutes and seconds in supported stored formats", () => {
-  assert.equal(interviewDateTimeValue("2026-10-15T14:35:27"), "2026-10-15T14:35:27");
-  assert.equal(interviewDateTimeValue("2026-10-15 14:35:27"), "2026-10-15T14:35:27");
+test("interview input displays minute precision in supported stored formats", () => {
+  assert.equal(interviewDateTimeValue("2026-10-15T14:35:27"), "2026-10-15T14:35");
+  assert.equal(interviewDateTimeValue("2026-10-15 14:35:27"), "2026-10-15T14:35");
   assert.equal(interviewDateTimeValue("2026-10-15T14:35"), "2026-10-15T14:35");
   assert.equal(interviewDateTimeValue("2026-10-15"), "2026-10-15T00:00");
   assert.equal(interviewDateTimeValue(""), "");
