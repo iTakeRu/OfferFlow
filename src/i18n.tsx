@@ -278,7 +278,7 @@ const EN: Record<string, string> = {
   "看板": "Board",
   "列表": "List",
   "导出为 Excel": "Export as Excel",
-  "{total} 份投递，{active} 份正在推进。": "{total} applications, {active} in progress.",
+  "{total} 份投递　{active} 份正在推进": "{total} applications　{active} in progress",
   "导出失败：": "Export failed: ",
 
   // ===== 看板 =====

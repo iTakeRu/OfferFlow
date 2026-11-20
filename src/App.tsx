@@ -164,7 +164,7 @@ export default function App() {
   const inApps = nav === "board" || nav === "list";
   // 只有投递页有实际数字可说；其他栏目不放标语式的导语
   const deck = inApps
-    ? t("{total} 份投递，{active} 份正在推进。", {
+    ? t("{total} 份投递　{active} 份正在推进", {
       total: filtered.length,
       active: filtered.filter((a) => a.status === "推进中").length,
     })
