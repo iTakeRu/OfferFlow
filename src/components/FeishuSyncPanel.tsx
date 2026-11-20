@@ -3,6 +3,7 @@ import { confirm } from "@tauri-apps/plugin-dialog";
 import { bindFeishuTable, createFeishuTable, getFeishuSettings, getFeishuStatus, listFeishuTables, openFeishuTable, saveFeishuSettings, syncFeishuNow } from "../api";
 import type { FeishuReport, FeishuSettings, FeishuTables } from "../types";
 import { useI18n } from "../i18n";
+import { intervalParts, intervalSeconds } from "../feishuInterval";
 
 const button = "px-3 py-1.5 text-sm rounded-md border border-neutral-300 hover:bg-neutral-50 disabled:opacity-50";
 const primary = "px-3 py-1.5 text-sm rounded-md bg-navy text-on-navy hover:bg-navy-deep disabled:opacity-50";
@@ -23,9 +24,13 @@ export default function FeishuSyncPanel() {
   const [tables, setTables] = useState<FeishuTables | null>(null);
   const [tableId, setTableId] = useState("");
   const [createFailed, setCreateFailed] = useState(false);
+  const [intervalValue, setIntervalValue] = useState("15");
+  const [intervalUnit, setIntervalUnit] = useState(1);
 
   const accept = (value: FeishuSettings) => {
     setSettings(value); setCliPath(value.cliPath); setProfile(value.profile);
+    const interval = intervalParts(value.syncIntervalSeconds);
+    setIntervalValue(interval.value); setIntervalUnit(interval.unit);
   };
   useEffect(() => {
     let active = true;
@@ -43,6 +48,9 @@ export default function FeishuSyncPanel() {
   const connected = Boolean(settings?.baseToken);
   const running = busy || Boolean(report?.running);
   const formOpen = !connected || changing;
+  const seconds = intervalSeconds(intervalValue, intervalUnit);
+  const savedInterval = intervalParts(settings?.syncIntervalSeconds ?? 15);
+  const unitLabel = (unit: number) => unit === 3600 ? t("小时") : unit === 60 ? t("分钟") : t("秒");
   const act = async (work: () => Promise<void>) => {
     setBusy(true); setError("");
     try { await work(); } catch (e) { setError(String(e)); }
@@ -85,7 +93,24 @@ export default function FeishuSyncPanel() {
         <input type="checkbox" role="switch" checked={settings?.autoSync ?? false} disabled={running || changing} onChange={(e) => toggle(e.target.checked)} />
         {t("自动同步到飞书")}
       </label>
-      <p className="text-xs text-neutral-500 mt-1">{t("开关即时保存。开启后，运行期间每 15 秒检测变化；失败后 5 分钟重试。")}</p>
+      <fieldset disabled={running || changing} className="flex flex-wrap items-center gap-2 mt-3 text-sm">
+        <label htmlFor="feishu-sync-interval">{t("同步间隔")}</label>
+        <input id="feishu-sync-interval" type="number" min={1} max={86400 / intervalUnit} step={1}
+          className={field.replace("w-full", "w-24")} value={intervalValue} aria-invalid={seconds === null}
+          onChange={(e) => setIntervalValue(e.target.value)} />
+        <select aria-label={t("同步间隔单位")} className={field.replace("w-full", "w-auto")} value={intervalUnit}
+          onChange={(e) => setIntervalUnit(Number(e.target.value))}>
+          {[1, 60, 3600].map((unit) => <option key={unit} value={unit}>{unitLabel(unit)}</option>)}
+        </select>
+        <button type="button" className={button} disabled={seconds === null || seconds === settings?.syncIntervalSeconds}
+          onClick={() => act(async () => {
+            if (!settings || seconds === null) return;
+            const next = { ...settings, syncIntervalSeconds: seconds };
+            await saveFeishuSettings(next); setSettings(next);
+          })}>{t("保存间隔")}</button>
+      </fieldset>
+      {seconds === null && <p className="text-xs text-red-700 mt-1">{t("请输入整数，间隔范围为 1 秒至 24 小时。")}</p>}
+      <p className="text-xs text-neutral-500 mt-1">{t("已保存：每 {value} {unit}检测变化。开关即时保存，失败后至少 5 分钟再试。", { value: savedInterval.value, unit: unitLabel(savedInterval.unit) })}</p>
     </>}
     {formOpen && <fieldset disabled={running || !settings} className="mt-3 space-y-3">
       <legend className="sr-only">{t("连接飞书表格")}</legend>

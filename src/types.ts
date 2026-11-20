@@ -115,6 +115,7 @@ export interface MirrorReport {
 
 export interface FeishuSettings {
   autoSync: boolean;
+  syncIntervalSeconds: number;
   cliPath: string;
   profile: string;
   baseToken: string;

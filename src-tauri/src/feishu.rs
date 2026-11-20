@@ -36,16 +36,68 @@ const FIELDS: [&str; 15] = [
     "OfferFlow ID",
 ];
 
-#[derive(Clone, Default, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct FeishuSettings {
     pub auto_sync: bool,
+    pub sync_interval_seconds: u64,
     pub cli_path: String,
     pub profile: String,
     pub base_token: String,
     pub table_id: String,
     pub source_id: String,
     pub source_database: String,
+}
+
+impl Default for FeishuSettings {
+    fn default() -> Self {
+        Self {
+            auto_sync: false,
+            sync_interval_seconds: 15,
+            cli_path: String::new(),
+            profile: String::new(),
+            base_token: String::new(),
+            table_id: String::new(),
+            source_id: String::new(),
+            source_database: String::new(),
+        }
+    }
+}
+
+fn validate_interval(seconds: u64) -> Result<(), String> {
+    if !(1..=86_400).contains(&seconds) {
+        return Err("同步间隔应为 1 秒至 24 小时".into());
+    }
+    Ok(())
+}
+
+#[derive(Default)]
+struct AutoSyncSchedule {
+    settings: Option<FeishuSettings>,
+    next_check: Option<Instant>,
+}
+
+impl AutoSyncSchedule {
+    fn due(&mut self, settings: &FeishuSettings, time: Instant) -> bool {
+        if !settings.auto_sync
+            || settings.base_token.is_empty()
+            || validate_interval(settings.sync_interval_seconds).is_err()
+        {
+            self.settings = None;
+            self.next_check = None;
+            return false;
+        }
+        if self.settings.as_ref() != Some(settings) {
+            self.settings = Some(settings.clone());
+            self.next_check = Some(time + Duration::from_secs(settings.sync_interval_seconds));
+            return false;
+        }
+        if self.next_check.is_some_and(|next| time >= next) {
+            self.next_check = Some(time + Duration::from_secs(settings.sync_interval_seconds));
+            return true;
+        }
+        false
+    }
 }
 
 #[derive(Clone, Default, Debug, Serialize, Deserialize)]
@@ -128,6 +180,7 @@ fn valid_id(value: &str) -> bool {
 }
 
 fn validate(settings: &FeishuSettings, dir: &Path) -> Result<(), String> {
+    validate_interval(settings.sync_interval_seconds)?;
     if !valid_id(&settings.base_token)
         || !settings.table_id.starts_with("tbl")
         || !valid_id(&settings.table_id)
@@ -424,6 +477,7 @@ fn add_missing_fields(
 
 fn preserve_source(settings: &mut FeishuSettings, dir: &Path) -> Result<(), String> {
     let previous: FeishuSettings = read_json(&dir.join(CONFIG))?;
+    settings.sync_interval_seconds = previous.sync_interval_seconds;
     let stored: Option<String> = read_json(&dir.join(SOURCE))?;
     settings.source_id = if let Some(source) = stored.filter(|id| valid_id(id)) {
         source
@@ -736,43 +790,49 @@ fn run_sync(db: &Db, runtime: &FeishuRuntime, dir: &Path) -> Result<FeishuReport
 }
 
 pub fn start_auto_sync(app: tauri::AppHandle) {
-    std::thread::spawn(move || loop {
-        std::thread::sleep(Duration::from_secs(15));
-        let runtime = app.state::<FeishuRuntime>();
-        if runtime.stopping.load(Ordering::SeqCst) {
-            break;
-        }
-        if runtime.running.load(Ordering::SeqCst) {
-            continue;
-        }
-        let dir = crate::db::default_db_dir();
-        let Ok(settings) = read_json::<FeishuSettings>(&dir.join(CONFIG)) else {
-            continue;
-        };
-        if !settings.auto_sync || settings.base_token.is_empty() {
-            continue;
-        }
-        // A failed request is retried at most every five minutes, including auth errors.
-        if let Ok(report) = read_json::<FeishuReport>(&dir.join(STATUS)) {
-            if report.error.is_some()
-                && report
-                    .finished_at
-                    .is_some_and(|time| now().saturating_sub(time) < 300_000)
-            {
+    std::thread::spawn(move || {
+        let mut schedule = AutoSyncSchedule::default();
+        loop {
+            // Observe settings changes promptly; read the database only when due.
+            std::thread::sleep(Duration::from_secs(1));
+            let runtime = app.state::<FeishuRuntime>();
+            if runtime.stopping.load(Ordering::SeqCst) {
+                break;
+            }
+            if runtime.running.load(Ordering::SeqCst) {
                 continue;
             }
-        }
-        let db = app.state::<Db>();
-        let unchanged = snapshot(&db, &settings).is_ok_and(|rows| {
-            runtime
-                .last_success
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .as_ref()
-                == Some(&json!([settings, rows]).to_string())
-        });
-        if !unchanged {
-            let _ = run_sync(&db, &runtime, &dir);
+            let dir = crate::db::default_db_dir();
+            let Ok(settings) = read_json::<FeishuSettings>(&dir.join(CONFIG)) else {
+                continue;
+            };
+            if !schedule.due(&settings, Instant::now()) {
+                continue;
+            }
+            // A failed request is retried at most every five minutes, including auth errors.
+            if let Ok(report) = read_json::<FeishuReport>(&dir.join(STATUS)) {
+                if report.error.is_some()
+                    && report
+                        .finished_at
+                        .is_some_and(|time| now().saturating_sub(time) < 300_000)
+                {
+                    continue;
+                }
+            }
+            let db = app.state::<Db>();
+            let unchanged = snapshot(&db, &settings).is_ok_and(|rows| {
+                runtime
+                    .last_success
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .as_ref()
+                    == Some(&json!([settings, rows]).to_string())
+            });
+            if !unchanged {
+                let _ = run_sync(&db, &runtime, &dir);
+                schedule.next_check =
+                    Some(Instant::now() + Duration::from_secs(settings.sync_interval_seconds));
+            }
         }
     });
 }
@@ -829,6 +889,58 @@ pub fn open_feishu_table(app: tauri::AppHandle) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn interval_defaults_migrate_and_custom_values_persist() {
+        let legacy: FeishuSettings = serde_json::from_value(json!({"autoSync": true})).unwrap();
+        assert_eq!(legacy.sync_interval_seconds, 15);
+        let dir = tempfile::tempdir().unwrap();
+        let custom = FeishuSettings {
+            sync_interval_seconds: 7200,
+            ..legacy
+        };
+        write_json(&dir.path().join(CONFIG), &custom).unwrap();
+        assert_eq!(
+            read_json::<FeishuSettings>(&dir.path().join(CONFIG)).unwrap(),
+            custom
+        );
+        let mut reconnected = FeishuSettings::default();
+        preserve_source(&mut reconnected, dir.path()).unwrap();
+        assert_eq!(reconnected.sync_interval_seconds, 7200);
+        assert!(validate_interval(0).is_err());
+        assert!(validate_interval(86_401).is_err());
+        assert!(validate_interval(1).is_ok());
+        assert!(validate_interval(86_400).is_ok());
+    }
+
+    #[test]
+    fn schedule_obeys_custom_interval_and_resets_on_changes() {
+        let mut schedule = AutoSyncSchedule::default();
+        let mut settings = FeishuSettings {
+            auto_sync: true,
+            base_token: "base".into(),
+            sync_interval_seconds: 300,
+            ..Default::default()
+        };
+        let start = Instant::now();
+        let at = |seconds| start + Duration::from_secs(seconds);
+        assert!(!schedule.due(&settings, at(0)));
+        assert!(!schedule.due(&settings, at(15)));
+        assert!(!schedule.due(&settings, at(299)));
+        assert!(schedule.due(&settings, at(300)));
+        assert!(!schedule.due(&settings, at(301)));
+        settings.sync_interval_seconds = 2;
+        assert!(!schedule.due(&settings, at(302)));
+        assert!(schedule.due(&settings, at(304)));
+        settings.auto_sync = false;
+        assert!(!schedule.due(&settings, at(306)));
+        settings.auto_sync = true;
+        settings.sync_interval_seconds = 3600;
+        assert!(!schedule.due(&settings, at(400)));
+        assert!(!schedule.due(&settings, at(3999)));
+        assert!(schedule.due(&settings, at(4000)));
+        assert!(!schedule.due(&settings, at(4000)));
+    }
     #[test]
     fn resolve_preserves_table_selection_and_requires_choice_for_multiple_tables() {
         let mut calls = 0;

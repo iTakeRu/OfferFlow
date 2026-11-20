@@ -3,6 +3,21 @@ import test from "node:test";
 import { channelFromSource, channelOptions, createApplicationSaver } from "../src/applicationSave.ts";
 import { interviewDateTimeValue } from "../src/format.ts";
 import { CATEGORIES, categoryOptions } from "../src/types.ts";
+import { intervalParts, intervalSeconds } from "../src/feishuInterval.ts";
+
+test("Feishu intervals round-trip units and reject invalid input", () => {
+  for (const seconds of [1, 15, 90, 300, 3600, 86400]) {
+    const { value, unit } = intervalParts(seconds);
+    assert.equal(intervalSeconds(value, unit), seconds);
+  }
+  assert.deepEqual(intervalParts(300), { value: "5", unit: 60 });
+  assert.equal(intervalSeconds("2", 3600), 7200);
+  for (const value of ["", " ", "0", "-1", "1.5", "NaN", "Infinity", "86401"]) {
+    assert.equal(intervalSeconds(value, 1), null);
+  }
+  assert.equal(intervalSeconds("25", 3600), null);
+  assert.equal(intervalSeconds("1", 2), null);
+});
 
 test("refresh failure is reported; retry updates the created application", async () => {
   let created = 0;
