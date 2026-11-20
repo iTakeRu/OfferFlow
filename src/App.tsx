@@ -162,13 +162,6 @@ export default function App() {
 
   const meta = VIEW_META[nav];
   const inApps = nav === "board" || nav === "list";
-  // 只有投递页有实际数字可说；其他栏目不放标语式的导语
-  const deck = inApps
-    ? t("{total} 份投递　{active} 份正在推进", {
-      total: filtered.length,
-      active: filtered.filter((a) => a.status === "推进中").length,
-    })
-    : null;
 
   return (
     <div className="min-h-screen bg-paper text-ink flex">
@@ -223,7 +216,16 @@ export default function App() {
               </div>
             )}
             <h2 className="font-serif text-4xl font-black tracking-wide leading-tight">{t(meta.title)}</h2>
-            {deck && <p className="mt-1.5 text-sm font-medium text-navy">{deck}</p>}
+            {inApps && <p className="mt-1.5 flex flex-wrap items-baseline gap-4 text-sm font-normal text-neutral-500">
+              <span className="inline-flex items-baseline gap-1">
+                <span className="font-semibold tabular-nums text-navy">{filtered.length}</span>
+                <span>{t("份投递")}</span>
+              </span>
+              <span className="inline-flex items-baseline gap-1">
+                <span className="font-semibold tabular-nums text-navy">{filtered.filter((a) => a.status === "推进中").length}</span>
+                <span>{t("份正在推进")}</span>
+              </span>
+            </p>}
           </div>
           <div className="ml-auto flex flex-wrap items-center gap-2">
             {/* 搜索、分类筛选和看板 / 列表切换只作用于投递，别的栏目不显示 */}
